@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">기업정보검색</string>
+    <string name="tab_basic_info">기본정보</string>
+    <string name="tab_financial">재무정보</string>
+    <string name="tab_loan">차입금</string>
+    <string name="tab_news">뉴스</string>
+</resources>

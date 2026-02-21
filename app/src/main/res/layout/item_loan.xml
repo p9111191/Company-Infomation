@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="8dp"
+    android:background="?android:attr/selectableItemBackground">
+
+    <!-- 금융기관명 -->
+    <TextView
+        android:id="@+id/institutionName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="2"
+        android:text="하나은행"
+        android:textSize="13sp"
+        android:textColor="@color/primary_text"
+        android:paddingEnd="4dp" />
+
+    <!-- 합계 -->
+    <TextView
+        android:id="@+id/totalAmount"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1.3"
+        android:text="245,816"
+        android:textSize="12sp"
+        android:textColor="@color/primary_text"
+        android:gravity="end"
+        android:paddingEnd="4dp" />
+
+    <!-- 대출 -->
+    <TextView
+        android:id="@+id/loanAmount"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1.3"
+        android:text="242,350"
+        android:textSize="12sp"
+        android:textColor="@color/secondary_text"
+        android:gravity="end"
+        android:paddingEnd="4dp" />
+
+    <!-- 유가증권 -->
+    <TextView
+        android:id="@+id/securities"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1.3"
+        android:text="0"
+        android:textSize="12sp"
+        android:textColor="@color/secondary_text"
+        android:gravity="end"
+        android:paddingEnd="4dp" />
+
+    <!-- 보증 -->
+    <TextView
+        android:id="@+id/guarantee"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1.3"
+        android:text="3,466"
+        android:textSize="12sp"
+        android:textColor="@color/secondary_text"
+        android:gravity="end" />
+
+</LinearLayout>
