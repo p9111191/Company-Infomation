@@ -20,7 +20,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         // 툴바 설정
-        supportActionBar?.title = "기업 정보 테스트"
+        supportActionBar?.title = "기업 정보 테스트2"
 
         // RecyclerView 초기화
         recyclerView = findViewById(R.id.recyclerView)
