@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  layout_financial_info.xml
+  ─────────────────────────
+  기존에 숫자가 하드코딩되어 있던 XML을 동적 바인딩 가능하도록 수정.
+  DetailActivity.showFinancialInfo() 에서 아래 ID로 값을 세팅합니다.
+-->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -10,7 +16,7 @@
         android:orientation="vertical"
         android:padding="8dp">
 
-        <!-- 요약 재무상태표 -->
+        <!-- ════ 요약 재무상태표 ════ -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -33,245 +39,55 @@
                     android:textColor="@color/primary"
                     android:layout_marginBottom="4dp" />
 
-                <!-- 테이블 헤더 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
+                <TextView
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:background="#F0F0F0"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="백만원"
-                        android:textStyle="bold"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2022"
-                        android:textStyle="bold"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2023"
-                        android:textStyle="bold"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2024"
-                        android:textStyle="bold"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-                </LinearLayout>
+                    android:text="단위: 백만원 (최근 결산 기준)"
+                    android:textSize="12sp"
+                    android:textColor="@color/secondary_text"
+                    android:layout_marginBottom="8dp" />
 
                 <!-- 자산총계 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="자산총계"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="9,529,845"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="8,808,991"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="8,333,306"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:padding="8dp" android:background="#F8F8F8">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.2" android:text="자산총계"
+                        android:textSize="14sp" android:textColor="@color/primary_text" android:textStyle="bold"/>
+                    <TextView android:id="@+id/fs_total_assets"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="-" android:textSize="14sp" android:textColor="@color/primary_text" android:textStyle="bold"/>
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#E0E0E0" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#E0E0E0"/>
 
                 <!-- 부채총계 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="부채총계"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="6,944,985"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="6,205,495"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="5,576,109"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:padding="8dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.2" android:text="부채총계"
+                        android:textSize="14sp" android:textColor="@color/primary_text"/>
+                    <TextView android:id="@+id/fs_total_liabilities"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="-" android:textSize="14sp" android:textColor="@color/secondary_text"/>
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#E0E0E0" />
-
-                <!-- 자본금 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="자본금"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="207,193"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="207,193"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="207,193"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-                </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#E0E0E0" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#E0E0E0"/>
 
                 <!-- 자본총계 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="자본총계"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2,584,860"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2,603,496"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2,757,196"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:padding="8dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.2" android:text="자본총계"
+                        android:textSize="14sp" android:textColor="@color/primary_text"/>
+                    <TextView android:id="@+id/fs_total_equity"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="-" android:textSize="14sp" android:textColor="@color/secondary_text"/>
                 </LinearLayout>
 
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- 요약 손익계산서 -->
+        <!-- ════ 요약 손익계산서 ════ -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -297,202 +113,52 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="단위 : 백만원"
+                    android:text="단위: 백만원 (최근 결산 기준)"
                     android:textSize="12sp"
                     android:textColor="@color/secondary_text"
-                    android:layout_marginBottom="12dp" />
-
-                <!-- 테이블 헤더 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:background="#F0F0F0"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="구분"
-                        android:textStyle="bold"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2022"
-                        android:textStyle="bold"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2023"
-                        android:textStyle="bold"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2024"
-                        android:textStyle="bold"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-                </LinearLayout>
+                    android:layout_marginBottom="8dp" />
 
                 <!-- 매출액 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="매출액"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="5,931,343"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="6,800,560"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="7,862,299"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:padding="8dp" android:background="#F8F8F8">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.2" android:text="매출액"
+                        android:textSize="14sp" android:textColor="@color/primary_text" android:textStyle="bold"/>
+                    <TextView android:id="@+id/fs_revenue"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="-" android:textSize="14sp" android:textColor="@color/primary_text" android:textStyle="bold"/>
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#E0E0E0" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#E0E0E0"/>
 
                 <!-- 영업이익 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="영업이익"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="365,773"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="272,266"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="177,066"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:padding="8dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.2" android:text="영업이익"
+                        android:textSize="14sp" android:textColor="@color/primary_text"/>
+                    <TextView android:id="@+id/fs_operating_profit"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="-" android:textSize="14sp" android:textColor="@color/secondary_text"/>
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#E0E0E0" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#E0E0E0"/>
 
                 <!-- 당기순이익 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="당기순이익"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="92,169"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="60,469"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="23,809"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:padding="8dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.2" android:text="당기순이익"
+                        android:textSize="14sp" android:textColor="@color/primary_text"/>
+                    <TextView android:id="@+id/fs_net_income"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="-" android:textSize="14sp" android:textColor="@color/secondary_text"/>
                 </LinearLayout>
 
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- 안정성 -->
+        <!-- ════ 재무비율 (안정성) ════ -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -509,197 +175,47 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="안정성"
+                    android:text="재무비율"
                     android:textSize="18sp"
                     android:textStyle="bold"
                     android:textColor="@color/primary"
                     android:layout_marginBottom="12dp" />
 
-                <!-- 테이블 헤더 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:background="#F0F0F0"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="구분"
-                        android:textStyle="bold"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2022"
-                        android:textStyle="bold"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2023"
-                        android:textStyle="bold"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="2024"
-                        android:textStyle="bold"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-                </LinearLayout>
-
                 <!-- 부채비율 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="부채비율"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="268.68"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="238.35"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="202.24"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:padding="8dp" android:background="#F8F8F8">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.2" android:text="부채비율"
+                        android:textSize="14sp" android:textColor="@color/primary_text" android:textStyle="bold"/>
+                    <TextView android:id="@+id/fs_debt_ratio"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="-" android:textSize="14sp" android:textColor="@color/primary_text" android:textStyle="bold"/>
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#E0E0E0" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#E0E0E0"/>
 
-                <!-- 이자보상배수 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="이자보상배수(배)"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="4.43"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="1.34"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="1.01"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
+                <!-- 영업이익률 -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:padding="8dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.2" android:text="영업이익률"
+                        android:textSize="14sp" android:textColor="@color/primary_text"/>
+                    <TextView android:id="@+id/fs_op_margin"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="-" android:textSize="14sp" android:textColor="@color/secondary_text"/>
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#E0E0E0" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#E0E0E0"/>
 
-                <!-- 차입금의존도 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:padding="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1.2"
-                        android:text="차입금의존도"
-                        android:textSize="13sp"
-                        android:textColor="@color/primary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="41.42"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="32.53"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="25.07"
-                        android:gravity="end"
-                        android:textSize="13sp"
-                        android:textColor="@color/secondary_text" />
+                <!-- ROE -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:padding="8dp">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.2" android:text="ROE"
+                        android:textSize="14sp" android:textColor="@color/primary_text"/>
+                    <TextView android:id="@+id/fs_roe"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="-" android:textSize="14sp" android:textColor="@color/secondary_text"/>
                 </LinearLayout>
 
             </LinearLayout>

@@ -4,6 +4,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 파일 피커(ACTION_OPEN_DOCUMENT)는 별도 권한 없이 동작,
+         Android 12 이하 외부 저장소 직접 접근 시에만 사용 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <application
         android:allowBackup="true"
@@ -14,6 +18,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.DarkActionBar"
+        android:name="androidx.multidex.MultiDexApplication"
         tools:targetApi="31">
 
         <activity
