@@ -2,11 +2,16 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.parcelize")
+    id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
 }
 
 android {
     namespace = "com.example.companyinfo"
     compileSdk = 34
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "com.example.companyinfo"
@@ -95,4 +100,5 @@ dependencies {
         exclude(group = "org.codehaus.woodstox", module = "stax2-api")
     }
     implementation("org.codehaus.woodstox:stax2-api:4.2.1")
+    implementation("org.jsoup:jsoup:1.18.1")
 }
