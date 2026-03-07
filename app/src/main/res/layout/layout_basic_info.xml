@@ -44,6 +44,19 @@
                     android:layout_marginBottom="12dp" />
 
                 <TextView
+                    android:id="@+id/groupName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:paddingVertical="6dp"
+                    android:paddingHorizontal="10dp"
+                    android:background="#E8EAF6"
+                    android:layout_marginBottom="8dp"
+                    android:visibility="gone" />  <!-- 기본 숨김, 그룹 있을 때만 표시 -->
+
+
+                <TextView
                     android:id="@+id/businessNumber"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

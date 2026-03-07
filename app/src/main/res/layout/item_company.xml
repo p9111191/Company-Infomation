@@ -1,81 +1,92 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="8dp"
-    app:cardCornerRadius="8dp"
-    app:cardElevation="4dp"
-    android:clickable="true"
-    android:focusable="true"
-    android:foreground="?android:attr/selectableItemBackground">
+    android:orientation="vertical"
+    android:background="?android:attr/selectableItemBackground">
 
+    <!-- ── 콘텐츠 영역 ── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp">
 
-        <TextView
-            android:id="@+id/companyName"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="기업명"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            android:textColor="@color/primary_text" />
-
-        <TextView
-            android:id="@+id/companyCeo"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="대표: 홍길동"
-            android:textSize="14sp"
-            android:textColor="@color/secondary_text" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="12dp"
-            android:layout_marginBottom="12dp"
-            android:background="#E0E0E0" />
-
+        <!-- 1행: 기업명 / 대표자 / 사업자번호 / 신용등급 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/companyName"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2.4"
+                android:textSize="14sp"
+                android:textColor="#1A237E"
+                android:textStyle="bold"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:paddingEnd="6dp" />
+
+            <TextView
+                android:id="@+id/companyCeo"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.2"
+                android:textSize="13sp"
+                android:textColor="#212121"
+                android:gravity="center"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:paddingEnd="4dp" />
+
+            <TextView
+                android:id="@+id/businessNumber"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.8"
+                android:textSize="13sp"
+                android:textColor="#212121"
+                android:gravity="center"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:paddingEnd="4dp" />
 
             <TextView
                 android:id="@+id/creditRating"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="신용등급: A"
-                android:textSize="14sp"
-                android:textColor="@color/primary_text"
-                android:textStyle="bold" />
+                android:layout_weight="0.7"
+                android:textSize="13sp"
+                android:textColor="#1A237E"
+                android:textStyle="bold"
+                android:gravity="end" />
 
         </LinearLayout>
 
+        <!-- 2행: 주소 (작은 폰트, 연한 색) -->
         <TextView
-            android:id="@+id/revenue"
-            android:layout_width="wrap_content"
+            android:id="@+id/address"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="매출액: 7.9조원"
-            android:textSize="14sp"
-            android:textColor="@color/secondary_text" />
-
-        <TextView
-            android:id="@+id/totalAssets"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="자산총계: 8.3조원"
-            android:textSize="14sp"
-            android:textColor="@color/secondary_text" />
+            android:layout_marginTop="3dp"
+            android:textSize="11sp"
+            android:textColor="#616161"
+            android:ellipsize="end"
+            android:maxLines="1" />
 
     </LinearLayout>
 
-</androidx.cardview.widget.CardView>
+    <!-- 구분선 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#E0E0E0" />
+
+</LinearLayout>

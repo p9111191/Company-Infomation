@@ -65,6 +65,7 @@ data class FinancialRecord(
  */
 data class Company(
     val name: String,                        // 기업명
+    val groupName: String?,                  // 소속그룹 (nullable - 독립기업은 null)
     val businessNumber: String,              // 사업자번호
     val ceo: String,                         // 대표자
     val address: String,                     // 주소

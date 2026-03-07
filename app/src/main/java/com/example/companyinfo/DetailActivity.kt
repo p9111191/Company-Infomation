@@ -104,6 +104,7 @@ class DetailActivity : AppCompatActivity() {
             val view = layoutInflater.inflate(R.layout.layout_basic_info, null)
 
             view.findViewById<TextView>(R.id.companyName).text    = company.name
+            setupGroupName(view)  // ✅ 그룹명 표시 (회사명과 사업자번호 사이)
             view.findViewById<TextView>(R.id.businessNumber).text = "사업자번호: ${company.businessNumber}"
             view.findViewById<TextView>(R.id.ceo).text            = "대표자: ${company.ceo}"
             view.findViewById<TextView>(R.id.foundedDate).text    = "설립일: ${company.foundedDate}"
@@ -140,6 +141,60 @@ class DetailActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * ✅ 그룹명 표시 및 클릭 이벤트 설정
+     * - groupName이 null/blank가 아닐 때만 표시
+     * - 클릭시 GroupStructureActivity로 이동
+     */
+    private fun setupGroupName(view: View) {
+        val groupTextView = view.findViewById<TextView>(R.id.groupName)
+
+        if (company.groupName.isNullOrBlank()) {
+            groupTextView.visibility = View.GONE
+            return
+        }
+
+        // 그룹명 표시 (클릭 가능한 스타일)
+        groupTextView.apply {
+            visibility = View.VISIBLE
+            text = "그룹: ${company.groupName} ☜"
+
+            // 클릭 가능한 시각적 효과
+            setTextColor(resources.getColor(android.R.color.holo_blue_dark, null))
+            setCompoundDrawablesWithIntrinsicBounds(
+                0, 0,
+                android.R.drawable.ic_menu_info_details, // 또는 커스텀 아이콘
+                0
+            )
+            compoundDrawablePadding = 8
+
+            // 클릭 리스너
+            setOnClickListener {
+                openGroupStructure(company.groupName!!)
+            }
+
+            // 터치 피드백
+            isClickable = true
+            isFocusable = true
+            background = resources.getDrawable(
+                android.R.drawable.list_selector_background,
+                null
+            )
+        }
+    }
+
+    /**
+     * 그룹 지배구조 PDF 뷰어 열기
+     */
+    private fun openGroupStructure(groupName: String) {
+        val intent = android.content.Intent(this, GroupStructureActivity::class.java).apply {
+            putExtra(GroupStructureActivity.EXTRA_GROUP_NAME, groupName)
+        }
+        startActivity(intent)
+    }
+
+
+
     // ── 주가 API ───────────────────────────────────────────────────────────
 
     private fun fetchStockInfo(stockCode: String, view: View) {
@@ -152,38 +207,42 @@ class DetailActivity : AppCompatActivity() {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val basicJson = JSONObject(
-                    URL("https://m.stock.naver.com/api/stock/$stockCode/basic").readText()
-                )
-                val currentPrice = basicJson.optString("closePrice", "0").replace(",", "").toIntOrNull() ?: 0
-                val changeAmount = basicJson.optString("compareToPreviousClosePrice", "0").replace(",", "").toIntOrNull() ?: 0
-                val changeRate   = basicJson.optString("fluctuationsRatio", "0").toDoubleOrNull() ?: 0.0
+                // ─── 다음금융 API: 현재가 / 등락폭 / 시가총액 / PER / PBR ──────────
+                // symbolCode 형식: A + 6자리 종목코드 (예: A005930)
+                // Referer 헤더 필수 — 없으면 403 반환
+                val symbolCode = "A$stockCode"
+                val quoteJson  = fetchDaumQuote(symbolCode)
 
-                var marketCap = 0L; var per = 0.0; var pbr = 0.0
-                runCatching {
-                    val investJson = JSONObject(
-                        URL("https://m.stock.naver.com/api/stock/$stockCode/investment").readText()
-                    )
-                    marketCap = (investJson.optString("marketValue", "0").replace(",", "").toLongOrNull() ?: 0) / 100000000
-                    per = investJson.optString("per", "0").toDoubleOrNull() ?: 0.0
-                    pbr = investJson.optString("pbr", "0").toDoubleOrNull() ?: 0.0
-                }
+                val currentPrice = quoteJson.optDouble("tradePrice", 0.0).toInt()
+                val changeAmount = quoteJson.optDouble("changePrice", 0.0).toInt()
+                val changeRate   = quoteJson.optDouble("changeRate",  0.0) * 100.0  // 소수 → %
+
+                // 시가총액: 원 단위 → 억 원
+                val marketCap = (quoteJson.optLong("marketCap", 0L)) / 100_000_000L
+                val per       = quoteJson.optDouble("per", 0.0)
+                val pbr       = quoteJson.optDouble("pbr", 0.0)
 
                 withContext(Dispatchers.Main) {
                     view.findViewById<TextView>(R.id.stockLoadingText).visibility = View.GONE
                     view.findViewById<LinearLayout>(R.id.stockDataLayout).visibility = View.VISIBLE
+
                     view.findViewById<TextView>(R.id.currentPrice).text =
                         String.format("%,d원", currentPrice)
+
                     view.findViewById<TextView>(R.id.priceChange).apply {
-                        text = String.format("%s%,d원 (%.2f%%)",
+                        text = String.format(
+                            "%s%,d원 (%.2f%%)",
                             if (changeAmount > 0) "▲" else if (changeAmount < 0) "▼" else "",
-                            Math.abs(changeAmount), Math.abs(changeRate))
+                            Math.abs(changeAmount),
+                            Math.abs(changeRate)
+                        )
                         setTextColor(when {
                             changeAmount > 0 -> resources.getColor(android.R.color.holo_red_dark, null)
                             changeAmount < 0 -> resources.getColor(android.R.color.holo_blue_dark, null)
                             else             -> resources.getColor(android.R.color.black, null)
                         })
                     }
+
                     view.findViewById<TextView>(R.id.marketCap).apply {
                         visibility = if (marketCap > 0) View.VISIBLE else View.GONE
                         text = "시가총액: ${String.format("%,d억원", marketCap)}"
@@ -197,6 +256,7 @@ class DetailActivity : AppCompatActivity() {
                         text = "PBR: ${String.format("%.2f", pbr)}"
                     }
                 }
+
             } catch (e: java.net.UnknownHostException) {
                 showStockError(view, "네트워크에 연결할 수 없습니다")
             } catch (e: Exception) {
@@ -204,6 +264,61 @@ class DetailActivity : AppCompatActivity() {
                 showStockError(view, "주가 정보를 불러올 수 없습니다")
             }
         }
+    }
+
+    /**
+     * 다음금융 내부 API에서 종목 시세를 조회합니다.
+     *
+     * 호출 URL:
+     *   https://finance.daum.net/api/quote/{symbolCode}
+     *   symbolCode = "A" + 6자리 종목코드 (예: A005930)
+     *
+     * 필수 헤더:
+     *   Referer: https://finance.daum.net   ← 없으면 403 응답
+     *   User-Agent: 일반 브라우저 UA
+     *
+     * 주요 응답 필드:
+     *   tradePrice   (Double) 현재가
+     *   changePrice  (Double) 전일 대비 등락폭 (절댓값)
+     *   changeRate   (Double) 등락률 (소수, 예: 0.0123 → 1.23%)
+     *   change       (String) "RISE" | "FALL" | "EVEN" → 부호 판단에 활용
+     *   marketCap    (Long)   시가총액 (원 단위)
+     *   per          (Double) PER
+     *   pbr          (Double) PBR
+     */
+    private fun fetchDaumQuote(symbolCode: String): JSONObject {
+        // ❌ 기존 (잘못됨): /api/quote/{code}      → 단수 "quote"
+        // ✅ 수정 후:        /api/quotes/{code}     → 복수 "quotes" (웹 URL과 동일)
+        val url = "https://finance.daum.net/api/quotes/$symbolCode"
+
+        val conn = (URL(url).openConnection() as java.net.HttpURLConnection).apply {
+            connectTimeout = 5_000
+            readTimeout    = 5_000
+            setRequestProperty("Referer",    "https://finance.daum.net/quotes/$symbolCode")
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10) " +
+                    "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                    "Chrome/120.0.0.0 Mobile Safari/537.36")
+            setRequestProperty("Accept", "application/json, text/plain, */*")
+        }
+
+        val responseCode = conn.responseCode
+        if (responseCode != 200) {
+            // 디버깅용: 응답 코드와 함께 오류 메시지도 로그에 출력
+            val errBody = runCatching {
+                conn.errorStream?.bufferedReader()?.readText() ?: "no body"
+            }.getOrDefault("read failed")
+            conn.disconnect()
+            Log.e("DetailActivity", "다음금융 오류 [$responseCode]: $errBody")
+            throw Exception("다음금융 API 응답 오류: HTTP $responseCode")
+        }
+
+        val raw = conn.inputStream.bufferedReader().readText()
+        conn.disconnect()
+
+        Log.d("DetailActivity", "다음금융 응답: ${raw.take(300)}") // 앞 300자만 로그 출력
+
+        val root = JSONObject(raw)
+        return if (root.has("data")) root.getJSONObject("data") else root
     }
 
     private fun showStockError(view: View, message: String) {
@@ -346,42 +461,200 @@ class DetailActivity : AppCompatActivity() {
 
     // ── 차입금 ─────────────────────────────────────────────────────────────
 
+    // 은행 순서 정의 (목록에 없는 기관은 비은행으로 분류)
+    private val BANK_ORDER = listOf(
+        "부산은행", "경남은행", "아이엠뱅크", "국민은행", "신한은행", "하나은행",
+        "우리은행", "농협은행", "기업은행", "수협은행", "광주은행", "전북은행", "제주은행", "산업은행", "수출입은행"
+    )
+
     private fun showLoanInfo() {
         contentLayout.removeAllViews()
-        val view = layoutInflater.inflate(R.layout.layout_loan_info, null)
 
-        view.findViewById<TextView>(R.id.totalLoans).text   = formatAmount(company.totalLoans)
-        view.findViewById<TextView>(R.id.bankLoans).text    = formatAmount(company.bankLoans)
-        view.findViewById<TextView>(R.id.nonBankLoans).text = formatAmount(company.nonBankLoans)
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
 
-        val loanListLayout = view.findViewById<LinearLayout>(R.id.loanListLayout)
-        company.loanDetails.forEach { loan ->
-            val itemView = layoutInflater.inflate(R.layout.item_loan, null)
-            itemView.findViewById<TextView>(R.id.institutionName).text = loan.institution
-            itemView.findViewById<TextView>(R.id.totalAmount).text     = formatNumber(loan.totalAmount)
-            itemView.findViewById<TextView>(R.id.loanAmount).text      = formatNumber(loan.loanAmount)
-            itemView.findViewById<TextView>(R.id.securities).text      = formatNumber(loan.securities)
-            itemView.findViewById<TextView>(R.id.guarantee).text       = formatNumber(loan.guarantee)
-            loanListLayout.addView(itemView)
+        val bankSet = BANK_ORDER.toSet()
 
-            val divider = View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
-                setBackgroundColor(resources.getColor(android.R.color.darker_gray, null))
-            }
-            loanListLayout.addView(divider)
+        // 합계 0 제외
+        val validLoans = company.loanDetails.filter { it.totalAmount > 0 }
+
+        // institutionType 필드("은행"/"비은행")로 정확하게 분류
+        val (rawBankLoans, nonBankLoans) = validLoans.partition { it.institutionType == "은행" }
+
+        // 은행 섹션: BANK_ORDER 순서대로 먼저, 목록에 없는 은행은 맨 뒤에 순서 없이
+        val orderedBanks   = rawBankLoans.filter { it.institution in bankSet }
+            .sortedBy { BANK_ORDER.indexOf(it.institution) }
+        val unorderedBanks = rawBankLoans.filter { it.institution !in bankSet }
+        val bankLoans      = orderedBanks + unorderedBanks
+
+        val bankTotal    = bankLoans.sumOf { it.totalAmount }
+        val nonBankTotal = nonBankLoans.sumOf { it.totalAmount }
+
+        val outerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            // 좌, 위, 우, 아래 여백 지정
+            setPadding(2.dp(), 6.dp(), 2.dp(), 6.dp())
         }
 
-        contentLayout.addView(view)
+        outerLayout.addView(createLoanSection("은행 차입금", bankTotal, bankLoans))
+        outerLayout.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 12.dp())
+        })
+        outerLayout.addView(createLoanSection("비은행 차입금", nonBankTotal, nonBankLoans))
+
+        val scrollView = android.widget.ScrollView(this).apply {
+            addView(outerLayout)
+        }
+        contentLayout.addView(scrollView)
+    }
+
+    /**
+     * 은행/비은행 박스 섹션 생성
+     */
+    private fun createLoanSection(title: String, total: Long, loans: List<LoanInfo>): LinearLayout {
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        // 색상 상수 (진한 컬러)
+        val colorPrimary   = android.graphics.Color.parseColor("#1A237E")   // 진한 남색 (제목)
+        val colorHeader    = android.graphics.Color.parseColor("#283593")   // 헤더 배경
+        val colorHeaderTxt = android.graphics.Color.WHITE
+        val colorNameTxt   = android.graphics.Color.parseColor("#1A237E")   // 기관명
+        val colorTotalTxt  = android.graphics.Color.parseColor("#212121")   // 합계 금액
+        val colorSubTxt    = android.graphics.Color.parseColor("#424242")   // 나머지 열
+        val colorDivider   = android.graphics.Color.parseColor("#9E9E9E")
+        val colorBorder    = android.graphics.Color.parseColor("#3949AB")
+        val colorTitleBg   = android.graphics.Color.parseColor("#E8EAF6")   // 제목 배경
+
+        // 외곽 박스 (테두리)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(android.graphics.Color.WHITE)
+                setStroke(2, colorBorder)
+                cornerRadius = 8 * dp
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        // ── 제목 행 ──
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(8.dp(), 7.dp(), 8.dp(), 7.dp())
+            setBackgroundColor(colorTitleBg)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(colorTitleBg)
+                cornerRadii = floatArrayOf(8*dp, 8*dp, 8*dp, 8*dp, 0f, 0f, 0f, 0f)
+            }
+        }
+        val titleTv = TextView(this).apply {
+            text = title
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(colorPrimary)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val totalTv = TextView(this).apply {
+            text = formatAmountWithUnit(total)
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(colorPrimary)
+            gravity = android.view.Gravity.END
+        }
+        titleRow.addView(titleTv)
+        titleRow.addView(totalTv)
+        box.addView(titleRow)
+
+        // 제목/헤더 구분선
+        box.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+            setBackgroundColor(colorBorder)
+        })
+
+        // ── 헤더 행 ──
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(6.dp(), 5.dp(), 6.dp(), 5.dp())
+            setBackgroundColor(colorHeader)
+        }
+        fun headerTv(text: String, weight: Float, gravity: Int = android.view.Gravity.END) = TextView(this).apply {
+            this.text = text
+            textSize = 11f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(colorHeaderTxt)
+            this.gravity = gravity
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight)
+        }
+        headerRow.addView(headerTv("(단위: 백만원)", 2.5f, android.view.Gravity.START))
+        headerRow.addView(headerTv("합계", 1.2f))
+        headerRow.addView(headerTv("대출채권", 1.2f))
+        headerRow.addView(headerTv("유가증권", 1.2f))
+        headerRow.addView(headerTv("보증 등", 1.2f))
+        box.addView(headerRow)
+
+        // ── 데이터 행 ──
+        loans.forEachIndexed { idx, loan ->
+            // 구분선
+            box.addView(View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+                setBackgroundColor(colorDivider)
+            })
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(4.dp(), 5.dp(), 4.dp(), 5.dp())
+                // 짝수 행 살짝 다른 배경
+                setBackgroundColor(if (idx % 2 == 0) android.graphics.Color.WHITE else android.graphics.Color.parseColor("#F5F5F5"))
+            }
+
+            fun cellTv(txt: String, weight: Float, color: Int, bold: Boolean = false, gravity: Int = android.view.Gravity.END) =
+                TextView(this).apply {
+                    text = txt
+                    textSize = 11.5f
+                    if (bold) setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(color)
+                    this.gravity = gravity
+                    setPadding(0, 0, 2.dp(), 0)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight)
+                }
+
+            row.addView(cellTv(displayInstitutionName(loan.institution).replace("(주)",""), 2.5f, colorNameTxt, bold = true, gravity = android.view.Gravity.START))
+            row.addView(cellTv(formatNumber(loan.totalAmount), 1.2f, colorTotalTxt, bold = true))
+            row.addView(cellTv(formatNumber(loan.loanAmount),  1.2f, colorSubTxt))
+            row.addView(cellTv(formatNumber(loan.securities),  1.2f, colorSubTxt))
+            row.addView(cellTv(formatNumber(loan.guarantee),   1.2f, colorSubTxt))
+            box.addView(row)
+        }
+
+        if (loans.isEmpty()) {
+            box.addView(View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+                setBackgroundColor(colorDivider)
+            })
+            box.addView(TextView(this).apply {
+                text = "데이터 없음"
+                textSize = 13f
+                setTextColor(colorSubTxt)
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, 16.dp(), 0, 16.dp())
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            })
+        }
+
+        return box
     }
 
     // ── 포맷 헬퍼 ──────────────────────────────────────────────────────────
 
-    private fun formatNum(amount: Long)    = String.format("%,d", amount)
     private fun formatNumber(amount: Long) = String.format("%,d", amount)
-    private fun formatAmount(amount: Long) = when {
-        amount >= 1_000_000L -> String.format("%.2f조", amount / 1_000_000.0)
-        amount >= 10_000L    -> String.format("%.0f억",  amount / 10_000.0)
-        else                 -> String.format("%,d백만",  amount)
+    /** 섹션 제목 옆 합계 표시용 (단위 포함) */
+    private fun formatAmountWithUnit(amount: Long) = when {
+        amount >= 1_000_000L -> String.format("%.2f조원", amount / 1_000_000.0)
+        amount >= 100L       -> String.format("%,.0f억원",  amount / 100.0)
+        else                 -> String.format("%,d백만원",  amount)
     }
 
     // ── 5-tuple 헬퍼 (재무비율 5개 ID 묶음용) ─────────────────────────────
@@ -393,4 +666,15 @@ class DetailActivity : AppCompatActivity() {
     private operator fun <A, B, C, D, E> Quintuple<A, B, C, D, E>.component3() = third
     private operator fun <A, B, C, D, E> Quintuple<A, B, C, D, E>.component4() = fourth
     private operator fun <A, B, C, D, E> Quintuple<A, B, C, D, E>.component5() = fifth
+}
+
+private fun displayInstitutionName(name: String): String = when (name) {
+    "한국스탠다드차타드" -> "SC은행"
+    "신한라이프_(구)신한생명" -> "신한라이프"
+    "비앤피파리바카디프생" -> "카디프생명보험"
+    "현대인베스트먼트자산" -> "현대인베스트운용"
+    "인피니티글로벌자산운용" -> "인피니티글로벌운용"
+    "타이거자산운용투자자" -> "타이거자산운용"
+    "중국농업은행주식유한" -> "중국농업은행"
+    else -> name
 }

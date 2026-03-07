@@ -40,6 +40,12 @@
                 android:value=".MainActivity" />
         </activity>
 
+        <activity
+            android:name=".GroupStructureActivity"
+            android:parentActivityName=".DetailActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="false" />
+
     </application>
 
 </manifest>

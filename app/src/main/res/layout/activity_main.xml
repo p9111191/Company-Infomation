@@ -29,6 +29,11 @@
         android:lineSpacingExtra="4dp"
         android:visibility="gone" />
 
+    <!-- 제목줄 -->
+    <include
+        android:id="@+id/listHeader"
+        layout="@layout/header_company_list" />
+
     <!-- 기업 목록 -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerView"

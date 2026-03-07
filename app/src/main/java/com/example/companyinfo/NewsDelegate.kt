@@ -190,41 +190,46 @@ class NewsDelegate(
     fun showNews(forceRefresh: Boolean = false) {
         isShowingDetail = false
 
-        // [로직 추가] 캐시된 데이터가 있고 강제 새로고침이 아니라면 즉시 리스트 렌더링
         if (!forceRefresh && cachedNewsList != null) {
             contentLayout.removeAllViews()
             renderNewsList(cachedNewsList!!)
             return
         }
 
-        // 새로 불러올 때는 스크롤 위치 초기화 + ancestor도 맨 위로
         savedListScrollY = 0
         findAncestorScrollView()?.scrollTo(0, 0)
 
-        // 처음 불러오거나 forceRefresh 가 true 일 때만 아래 API 로직 실행
         contentLayout.removeAllViews()
         contentLayout.addView(buildLoadingLayout("뉴스를 불러오는 중..."))
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                // 1. 이름 정제 (주식회사 등 제거)
                 val searchName = company.name.toCleanCompanyName()
-                val query      = URLEncoder.encode(searchName, "UTF-8")
+                // 2. 영문 발음 변환 (에스케이 -> SK)
+                val engName = searchName.translateToEnglishName()
 
-                val allFetched = fetchNewsItems(query, pages = 5)  // ★ 500개로 확대
+                // 3. 검색은 영문 변환명으로 수행 (기사 양이 더 많음)
+                val query = URLEncoder.encode(engName, "UTF-8")
+                val allFetched = fetchNewsItems(query, pages = 5)
+
+                // 4. 필터링: 한글명 OR 영문명 둘 중 하나라도 제목에 포함되면 허용
                 val titleFiltered = allFetched.filter {
-                    it.title.contains(searchName, ignoreCase = true)
+                    it.title.contains(searchName, ignoreCase = true) ||
+                            it.title.contains(engName, ignoreCase = true)
                 }
-                val categoryFiltered = titleFiltered.filter { item -> !item.isEntertainmentOrSports() }
-                Log.d(TAG, "카테고리 필터: ${titleFiltered.size - categoryFiltered.size}개 제외(스포츠/연예) → ${categoryFiltered.size}개 남음")
-                val deduplicated = categoryFiltered.deduplicateBySimilarTitle(searchName)
 
-                // [수정] 최종 리스트를 캐시에 저장
+                val categoryFiltered = titleFiltered.filter { item -> !item.isEntertainmentOrSports() }
+
+                // 5. 중복 제거 시에도 기준 이름을 engName으로 전달하여 정확도 향상
+                val deduplicated = categoryFiltered.deduplicateBySimilarTitle(engName)
+
                 cachedNewsList = deduplicated.take(NEWS_DISPLAY_COUNT)
 
                 withContext(Dispatchers.Main) {
                     contentLayout.removeAllViews()
                     if (cachedNewsList.isNullOrEmpty()) {
-                        contentLayout.addView(buildEmptyView("'${company.name}' 관련 뉴스가 없습니다."))
+                        contentLayout.addView(buildEmptyView("'${searchName}' 관련 뉴스가 없습니다."))
                     } else {
                         renderNewsList(cachedNewsList!!)
                     }
@@ -1150,6 +1155,22 @@ data class NaverNewsItem(
 )
 
 sealed class ContentBlock {
-    data class Text (val content: String)                        : ContentBlock()
+    data class Text (val content: String)                       : ContentBlock()
     data class Image(val url: String, val caption: String = "") : ContentBlock()
+}
+
+private fun String.translateToEnglishName(): String {
+    val nameMap = mapOf(
+        "에스케이" to "SK",
+        "지에스" to "GS",
+        "엘에스" to "LS",
+        "아이엠" to "IM",
+        "케이피엑스" to "KPX",
+        "에이치디" to "HD" // 필요시 추가
+    )
+    var result = this
+    nameMap.forEach { (korean, english) ->
+        result = result.replace(korean, english)
+    }
+    return result
 }

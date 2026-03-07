@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -36,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var emptyView: TextView
+    private lateinit var headerView: LinearLayout
     private lateinit var adapter: CompanyAdapter
 
     /** 전체 목록 보관 (검색 필터용) */
@@ -68,11 +70,12 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        supportActionBar?.title = "기업 정보 검색"
+        supportActionBar?.title = "개별기업"
 
         recyclerView = findViewById(R.id.recyclerView)
         progressBar  = findViewById(R.id.progressBar)
         emptyView    = findViewById(R.id.emptyView)
+        headerView   = findViewById(R.id.listHeader)
 
         adapter = CompanyAdapter(emptyList()) { company ->
             Log.d("MainActivity", "클릭된 기업: ${company.name}")

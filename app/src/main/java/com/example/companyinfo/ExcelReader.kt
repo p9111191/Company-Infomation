@@ -18,7 +18,7 @@ import java.util.Locale
  * xlsx 파일에서 기업 정보를 읽어 List<Company> 를 반환합니다.
  *
  * ■ 엑셀 시트 구조
- *   1. 기업기본정보 : 기업명 | 사업자번호 | 대표자 | 설립일 | 업종 | 종업원수 |
+ *   1. 기업기본정보 : 기업명 | 소속그룹 | 사업자번호 | 대표자 | 설립일 | 업종 | 종업원수 |
  *                    기업유형 | 기업규모 | 주소 | 전화번호 | 신용등급 |
  *                    상장여부(Y/N) | 종목코드 |
  *                    총차입금(백만) | 은행차입금(백만) | 비은행차입금(백만)
@@ -72,9 +72,13 @@ class ExcelReader(private val context: Context) {
             val isListed = row.str(idx1("상장여부(Y/N)", "상장여부")).uppercase() == "Y"
             val stockCode = row.str(idx1("종목코드")).takeIf { it.isNotBlank() }
 
+            // ✅ 소속그룹 필드 읽기 (2번째 컬럼)
+            val groupName = row.str(idx1("소속그룹")).takeIf { it.isNotBlank() }
+
             basics.add(
                 Company(
                     name          = name,
+                    groupName     = groupName,  // ✅ 소속그룹 저장
                     businessNumber= row.str(idx1("사업자번호")),
                     ceo           = row.str(idx1("대표자")),
                     address       = row.str(idx1("주소")),
