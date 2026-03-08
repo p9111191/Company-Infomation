@@ -39,6 +39,7 @@ class GroupStructureActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     private lateinit var pdfFileName: String
+    private var rotationApplied = false  // 회전+스케일 최초 1회만 실행
 
     companion object {
         const val EXTRA_GROUP_NAME = "group_name"
@@ -149,8 +150,9 @@ class GroupStructureActivity : AppCompatActivity() {
                 Log.d(TAG, "페이지 로딩 완료: $url")
                 progressBar.visibility = View.GONE
 
-                // [FIX 6] viewer.html 로드 완료 시 PDF 회전 적용
-                if (url?.contains("viewer.html") == true) {
+                // [FIX 6] viewer.html 최초 로드 시에만 PDF 회전 적용 (재진입 방지)
+                if (url?.contains("viewer.html") == true && !rotationApplied) {
+                    rotationApplied = true
                     injectPdfRotation(view)
                 }
             }
@@ -196,31 +198,22 @@ class GroupStructureActivity : AppCompatActivity() {
                 "PDFViewerApplication.pdfViewer&&" +
                 "PDFViewerApplication.pdfDocument){" +
                 "PDFViewerApplication.pdfViewer.pagesRotation=$degrees;" +
-                "console.log('[Rotation] pagesRotation=$degrees');" +
-                // CSS 주입: 뷰어 컨테이너 및 페이지 상하좌우 여백 제거
-                // CSS를 하나의 문자열로 합침 — 분리하면 JS에서 adjacent string SyntaxError 발생
+                "console.log('[Rotation] done');" +
+                // CSS: 여백 제거
                 "(function(){" +
                 "var s=document.createElement('style');" +
                 "s.textContent='#viewerContainer{padding:0!important;margin:0!important;top:0!important;}#viewer{margin:0!important;}.page,.pdfViewer .page{margin:0!important;border:none!important;box-shadow:none!important;}';" +
                 "document.head.appendChild(s);" +
-                "console.log('[CSS] margins removed');" +
                 "})();" +
-                // 회전 적용 직후 page-height 스케일 설정
-                // 약간 지연(150ms)을 줘야 회전 후 새 레이아웃 기준으로 계산됨
+                // 회전 후 150ms 뒤 page-height 스케일 1회만 설정, 이후 폴링 완전 종료
                 "setTimeout(function(){" +
                 "PDFViewerApplication.pdfViewer.currentScaleValue='page-height';" +
-                "console.log('[Scale] currentScaleValue=page-height');" +
-                // 스케일 재계산 완료 후 오른쪽 끝(제목)으로 스크롤
-                // page-height 스케일 적용이 비동기로 완료되므로 추가 지연 필요
                 "setTimeout(function(){" +
                 "var c=document.getElementById('viewerContainer');" +
-                "if(c){" +
-                "c.scrollLeft=c.scrollWidth;" +  // 오른쪽 끝(제목)으로
-                "c.scrollTop=0;" +               // 상단 여백 제거
-                "console.log('[Scroll] L='+c.scrollLeft+' T='+c.scrollTop);" +
-                "}" +
+                "if(c){c.scrollLeft=c.scrollWidth;c.scrollTop=0;}" +
                 "},300);" +
                 "},150);" +
+                "return;" +  // 성공 즉시 폴링 종료
                 "}else{setTimeout(function(){tryRotate(r-1);},300);}" +
                 "}" +
                 "tryRotate(40);" +

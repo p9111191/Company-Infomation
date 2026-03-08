@@ -85,6 +85,22 @@ class NewsDelegate(
             "fntoday.co.kr"          to "파이낸스투데이",
             "thevaluenews.co.kr"     to "더밸류뉴스",
             "sisajournal-e.com"      to "시사저널이코노미",
+            "joongangenews.com"      to "중앙이코노미뉴스",
+            "enewstoday.co.kr"       to "이뉴스투데이",
+            "arunews.com"            to "한국주택경제",
+            "koreastocknews.com"     to "증권경제신문",
+            "biztribune.co.kr"       to "비즈트리뷴",
+            "heraldcorp.com"         to "헤럴드경제",
+            "fntimes.com"            to "한국금융",
+            "seoulfn.com"            to "서울파이낸스",
+            "niceeconomy.co.kr"      to "나이스경제",
+            "geconomy.co.kr"         to "지이코노미",
+            "businesspost.co.kr"     to "비지니스포스트",
+            "financialreview.co.kr"  to "파이낸셜리뷰",
+            "econonews.co.kr"        to "이코노뉴스",
+            "economytalk.kr"         to "이코노미톡뉴스",
+            "ajunews.com"            to "아주경제",
+            "getnews.co.kr"          to "글로벌경제신문",
             // 종합일간지
             "chosun.com"             to "조선일보",
             "joins.com"              to "중앙일보",
@@ -123,11 +139,38 @@ class NewsDelegate(
             "knnews.co.kr"           to "경남신문",
             "labortoday.co.kr"       to "매일노동뉴스",
             "nspna.com"              to "NSP통신",
+            "dnews.co.kr"            to "대한경제",
+            "pinpointnews.co.kr"     to "핀포인트뉴스",
+            "sentv.co.kr"            to "서울경제TV",
             "kjdaily.com"            to "광주매일신문",
+            "jndn.com"               to "전남매일",
             "news2day.co.kr"         to "뉴스투데이",
             "job-post.co.kr"         to "잡포스트",
             "wikitree.co.kr"         to "위키트리",
-            "naver.com"              to "네이버뉴스"
+            "naver.com"              to "네이버뉴스",
+            "bbsi.co.kr"             to "불교뉴스",
+            "mediafine.co.kr"        to "미디어파인",
+            "ikld.kr"                to "국토일보",
+            "srtimes.kr"             to "SR타임스",
+            "4th.kr"                 to "포쓰저널",
+            "newstnt.com"            to "뉴스티앤티",
+            "m-i.kr"                 to "매일일보",
+            "enetnews.co.kr"         to "이넷뉴스",
+            "ktnews.com"             to "한국석유신문",
+            "asiaa.co.kr"            to "아시아에이",
+            "sisaon.co.kr"           to "시사오늘",
+            "shinailbo.co.kr"        to "신아일보",
+            "wsobi.com"              to "여성소비자신문",
+            "daily.hankooki.com"     to "데일리한국",
+            "kukinews.com"           to "쿠키뉴스",
+            "newsworks.co.kr"        to "뉴스웍스",
+            "dealsite.co.kr"         to "딜사이트",
+            "jeonmin.co.kr"          to "전민일보",
+            "siminsori.com"          to "시민소리",
+            "jnilbo.com"             to "전남일보",
+            "polinews.co.kr"         to "폴리뉴스",
+            "sidae.com"              to "시대",
+            "catchnews.kr"           to "CatchNews"
         )
 
         /**
@@ -272,7 +315,7 @@ class NewsDelegate(
                 if (conn.responseCode == 200) {
                     val json  = JSONObject(conn.inputStream.bufferedReader().readText())
                     val items = json.getJSONArray("items")
-                    Log.d(TAG, "페이지 ${page + 1}: ${items.length()}개")
+                    // Log.d(TAG, "페이지 ${page + 1}: ${items.length()}개")
                     for (i in 0 until items.length()) {
                         val obj     = items.getJSONObject(i)
                         val rawDate = obj.optString("pubDate")
@@ -492,7 +535,7 @@ class NewsDelegate(
                 // ★ Accept-Encoding을 명시하지 않아 Jsoup 기본값(압축 없음) 사용
                 //   → GZIPInputStream + SSL 복호화 충돌(BAD_DECRYPT) 방지
                 // ★ Connection: close → keep-alive 문제로 연결이 끊기는 사이트 대응
-                val doc = org.jsoup.Jsoup.connect(targetUrl)
+                val jsoupConn = org.jsoup.Jsoup.connect(targetUrl)
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
                     .header("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7")
@@ -503,7 +546,19 @@ class NewsDelegate(
                     .ignoreContentType(true)          // ★ Content-Type 무시
                     .maxBodySize(0)                   // ★ 응답 크기 제한 해제
                     .timeout(15000)
-                    .get()
+
+                // ★ SSL BAD_DECRYPT 발생 사이트 → TLSv1.2 강제 + 압축 완전 비활성화
+                //   Android 내장 com.android.okhttp 가 TLS 1.3 AEAD cipher 와
+                //   충돌할 때 발생. SSLContext("TLSv1.2")로 협상 범위를 제한해 해결.
+                val SSL_PROBLEM_SITES = listOf("pinpointnews.co.kr")
+                if (SSL_PROBLEM_SITES.any { targetUrl.contains(it) }) {
+                    Log.d(TAG, "SSL 호환 모드 적용: $targetUrl")
+                    jsoupConn
+                        .header("Accept-Encoding", "identity")   // 압축 완전 비활성화
+                        .sslSocketFactory(createCompatibleSslSocketFactory())
+                }
+
+                val doc = jsoupConn.get()
 
                 // [검증 2] HTML 문서가 정상적으로 로드되었는지 확인
                 Log.d(TAG, "문서 로드 완료. Title: ${doc.title()}")
@@ -677,6 +732,23 @@ class NewsDelegate(
         contentLayout.addView(scrollView)
     }
 
+    // ── SSL 호환 소켓 팩토리 ─────────────────────────────────────────────────
+    /**
+     * Android 내장 com.android.okhttp 가 TLS 1.3 AEAD cipher 와 충돌(BAD_DECRYPT)하는
+     * 사이트를 위해 TLSv1.2 범위로 협상을 제한한 SSLSocketFactory 를 반환합니다.
+     * 인증서 검증은 기존 시스템 TrustManager 를 그대로 사용합니다.
+     */
+    private fun createCompatibleSslSocketFactory(): javax.net.ssl.SSLSocketFactory {
+        return try {
+            val sc = javax.net.ssl.SSLContext.getInstance("TLSv1.2")
+            sc.init(null, null, java.security.SecureRandom())
+            sc.socketFactory
+        } catch (e: Exception) {
+            Log.w(TAG, "TLSv1.2 SSLContext 생성 실패, 기본값 사용: ${e.message}")
+            javax.net.ssl.SSLContext.getDefault().socketFactory
+        }
+    }
+
     // ── 본문 영역 선택 헬퍼 ──────────────────────────────────────────────────
 
     /**
@@ -716,6 +788,23 @@ class NewsDelegate(
 
         // ── 2. 언론사별 전용 셀렉터 ──────────────────────────────────────────
         when {
+            // ─ 쿠키뉴스 (kukinews.com)
+            // 구조: #article(itemprop=articleBody) > #articleContent(실제 본문)
+            //        + .view-footer(Copyright) + .articleToolBox(폰트크기 UI) + ...
+            // [itemprop=articleBody] 범용 셀렉터가 #article 전체를 잡으면
+            // Copyright·폰트크기 UI가 통째로 딸려오므로 #articleContent만 반환
+            url.contains("kukinews.com") -> {
+                Log.d(TAG, "본문 감지: 쿠키뉴스 #articleContent")
+                doc.selectFirst("#articleContent")?.let { return it }
+                // fallback: #article 잡은 뒤 노이즈 형제 제거
+                doc.selectFirst("#article")?.let { el ->
+                    val clone = el.clone()
+                    clone.select(".view-footer, .articleToolBox, .contentReporterInfo, " +
+                            ".reporterInfo, .articleRating, script, style").remove()
+                    return clone
+                }
+            }
+
             // ─ Newsdak CMS 계열 (뉴스프리존, 시사저널e, 디지털투데이, 잡포스트 등)
             // 공통 id: #article-view-content-div  /  공통 속성: itemprop=articleBody
             url.contains("newsfreezone.co.kr")
@@ -761,6 +850,69 @@ class NewsDelegate(
                     // 형제 사이드바 노이즈 제거
                     el.select(".box_timenews, .new_news_list, .section_top_view, " +
                             ".floating, [class*='ad'], [id*='ad']").remove()
+                    return el
+                }
+            }
+
+            // ─ 대한경제 (dnews.co.kr)
+            // 구조: .view_contents.innerNews > .newsCont > div.text (실제 본문)
+            //       .newsCont 하위에 .dateFont(날짜/SNS), .journalist_view_more(기자정보),
+            //       .journalist_name 등 노이즈 존재 → div.text 만 직접 반환
+            url.contains("dnews.co.kr") -> {
+                Log.d(TAG, "본문 감지: 대한경제 div.text")
+                val el = doc.selectFirst("div.text")
+                    ?: doc.selectFirst(".newsCont")
+                if (el != null) {
+                    el.select(
+                        ".dateFont, .btnSocial, .btnFont, .btnPrint, .journalist_view_more, " +
+                                ".journalist_img, .journalist_name, .journalist_email, .journalist_link, " +
+                                ".journalist_position, .sub_title, script, style"
+                    ).remove()
+                    return el
+                }
+            }
+
+            // ─ 서울경제TV (sentv.co.kr)
+            // 구조: /article/view/sentv... URL 패턴
+            //   section_1 : 제목·날짜·공유버튼 (노이즈)
+            //   section_2 .inner :
+            //     .s-tit      : 부제목 (노이즈)
+            //     #newsView   : ★ 실제 기사 본문 (edit-txt)
+            //     .reporter_wrap : 기자 프로필 (노이즈)
+            //     .copy-noti  : 저작권 고지 (노이즈)
+            //   section_3   : 관련뉴스 (노이즈)
+            url.contains("sentv.co.kr") -> {
+                Log.d(TAG, "본문 감지: 서울경제TV #newsView")
+                val el = doc.selectFirst("#newsView")
+                    ?: doc.selectFirst(".edit-txt")
+                    ?: doc.selectFirst(".view_txt")
+                    ?: doc.selectFirst(".article_txt")
+                    ?: doc.selectFirst(".article_body")
+                    ?: doc.selectFirst(".view_content")
+                if (el != null) {
+                    el.select(
+                        ".reporter_wrap, .reporter_info, .rel_news, .related_news, " +
+                                ".section_3, .bt-area, .s-tit, .copy-noti, " +
+                                ".view_sns, .view_util, .ad_box, [class*='ad_'], " +
+                                "script, style"
+                    ).remove()
+                    return el
+                }
+            }
+
+            // ─ 전남매일 (jndn.com)
+            // 구조: .cont_left > div#content(실제 기사 본문) + .article_footer + .box_timenews + .article_hot
+            //       .cont_right(사이드바) - 형제 요소이므로 #content만 선택 후 노이즈 제거
+            url.contains("jndn.com") -> {
+                Log.d(TAG, "본문 감지: 전남매일 #content")
+                val el = doc.selectFirst("#content")
+                    ?: doc.selectFirst(".cont_left")
+                if (el != null) {
+                    el.select(
+                        ".article_footer, .box_timenews, .new_news_list, .new_news_list_ttl, " +
+                                ".article_hot, .cont_right, .floating, .paging_news, " +
+                                "[class*='ad'], [id*='ad'], script, style"
+                    ).remove()
                     return el
                 }
             }
@@ -825,6 +977,28 @@ class NewsDelegate(
                         merged.appendChild(clone)
                     }
                     return merged
+                }
+            }
+
+            // ─ 광주MBC (kjmbc.co.kr)
+            // 구조: .news-article > header(제목·기자) + .news-article-body(★ 실제 본문)
+            //   .news-article-body 내 노이즈:
+            //     .daum-banner  : 다음 채널 배너
+            //     .tag          : Copyright 고지 + 공유·인쇄 버튼
+            //     .profile      : 기자 프로필
+            //     .news-comment : 댓글 영역
+            //   aside.news-aside : 많이 본 뉴스 / 최신뉴스 사이드바 (형제 요소)
+            url.contains("kjmbc.co.kr") -> {
+                Log.d(TAG, "본문 감지: 광주MBC .news-article-body")
+                val el = doc.selectFirst(".news-article-body")
+                    ?: doc.selectFirst(".news-article")
+                if (el != null) {
+                    el.select(
+                        ".daum-banner, .tag, .profile, .news-comment, " +
+                                ".pageFunction, aside, .news-aside, " +
+                                "script, style"
+                    ).remove()
+                    return el
                 }
             }
 
@@ -933,6 +1107,13 @@ class NewsDelegate(
             // 댓글 / 저작권 / 기자
             ".reply", ".comment", ".article_bottom", ".copyright", ".byline", ".reporter",
             ".nis-reporter-name",
+            // 저작권 고지 · 기자정보 (시민의소리 등 Newdak/자체CMS 계열)
+            // 구조 예: <div class="view-copyright">저작권자 © ...</div>
+            //          <div class="view-editors">기자 프로필 · 다른기사 보기</div>
+            ".view-copyright", ".view-editors",
+            // 유사 패턴 (타 언론사 동일 계열)
+            ".article-copyright", ".news-copyright", ".news_copyright",
+            ".view-reporter", ".view_reporter", ".reporter-info", ".reporter_info",
             // 태그 / 추천 뉴스
             ".article_tags", ".recommend_news", ".popular_news",
             ".rec-keywords", ".related-news", ".rnmc-relative-news",
@@ -942,9 +1123,18 @@ class NewsDelegate(
             ".empty-rnmc", ".foot_notice",
             // 기타 로고
             "#dealsite_ci", ".dealsite_ci", ".top_logo",
-            // 광주일보(kjdaily) 전용: 오른쪽 사이드바·최신뉴스 박스
-            ".cont_right", ".box_timenews", ".new_news_list",
+            // 대한경제(dnews.co.kr) 전용: 기자정보·날짜·SNS 영역
+            ".journalist_view_more", ".dateFont", ".btnSocial", ".btnPrint",
+            // 광주MBC(kjmbc.co.kr) 전용: 다음배너·저작권·기자프로필·댓글·사이드바
+            ".daum-banner", ".news-comment", ".news-aside",
+            // 서울경제TV(sentv.co.kr) 전용: 기자 프로필·관련기사·저작권·공유버튼·부제목
+            ".reporter_wrap", ".reporter_info", ".rel_news", ".view_sns", ".view_util",
+            ".copy-noti", ".s-tit", ".section_3", ".bt-area",
+            // 광주일보(kjdaily) 및 전남매일(jndn) 공통: 오른쪽 사이드바·최신뉴스 박스
+            ".cont_right", ".box_timenews", ".new_news_list", ".new_news_list_ttl",
             ".section_top_view", ".floating",
+            // 전남매일(jndn.com) 전용: 기사하단 네비·인기기사
+            ".article_footer", ".article_hot", ".paging_news",
             // 뉴스투데이(news2day) 전용: 관련기사·광고
             ".related_news", ".article_foot", ".art_etc",
             "[class*='adsbyaiinad']", "[class*='adsbygoogle']"

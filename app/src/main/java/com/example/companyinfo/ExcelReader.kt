@@ -15,7 +15,7 @@ import java.util.Locale
 /**
  * ExcelReader
  *
- * xlsx 파일에서 기업 정보를 읽어 List<Company> 를 반환합니다.
+ * xlsx 파일에서 기업 정보 및 계열집단 정보를 읽어 반환합니다.
  *
  * ■ 엑셀 시트 구조
  *   1. 기업기본정보 : 기업명 | 소속그룹 | 사업자번호 | 대표자 | 설립일 | 업종 | 종업원수 |
@@ -32,22 +32,37 @@ import java.util.Locale
  *   3. 주주정보     : 기업명 | 주주명 | 지분율(%)
  *   4. 차입금정보   : 기업명 | 금융기관명 | 구분(은행/비은행) | 합계 | 대출 | 유가증권 | 보증
  *   5. 뉴스정보     : 기업명 | 뉴스제목 | 날짜(YYYY-MM-DD) | 내용요약
+ *   6. 계열집단     : (1행 대헤더, 2행 소헤더, 3행부터 데이터)
+ *                    A열: 순위 | D열: 기업집단명 | E열: 동일인
+ *                    F열: 계열회사수 | H열: 공정자산총액
  */
 class ExcelReader(private val context: Context) {
 
-    /** Uri(파일 피커)로부터 로드 */
+    /** Uri(파일 피커)로부터 기업 목록 로드 */
     fun readFromUri(uri: Uri): Result<List<Company>> = runCatching {
         val stream = context.contentResolver.openInputStream(uri)
             ?: error("파일을 열 수 없습니다.")
         parseExcel(stream)
     }
 
-    /** assets 폴더의 기본 샘플 파일 로드 */
+    /** assets 폴더의 기본 샘플 파일에서 기업 목록 로드 */
     fun readFromAssets(fileName: String): Result<List<Company>> = runCatching {
         parseExcel(context.assets.open(fileName))
     }
 
-    // ── 파싱 메인 ──────────────────────────────────────────────────────────
+    /** Uri(파일 피커)로부터 계열집단 목록 로드 */
+    fun readGroupsFromUri(uri: Uri): Result<List<ChaebulGroup>> = runCatching {
+        val stream = context.contentResolver.openInputStream(uri)
+            ?: error("파일을 열 수 없습니다.")
+        parseGroups(stream)
+    }
+
+    /** assets 폴더의 기본 샘플 파일에서 계열집단 목록 로드 */
+    fun readGroupsFromAssets(fileName: String): Result<List<ChaebulGroup>> = runCatching {
+        parseGroups(context.assets.open(fileName))
+    }
+
+    // ── 기업 파싱 메인 ─────────────────────────────────────────────────────
 
     private fun parseExcel(stream: InputStream): List<Company> {
         val wb = WorkbookFactory.create(stream)
@@ -71,14 +86,12 @@ class ExcelReader(private val context: Context) {
 
             val isListed = row.str(idx1("상장여부(Y/N)", "상장여부")).uppercase() == "Y"
             val stockCode = row.str(idx1("종목코드")).takeIf { it.isNotBlank() }
-
-            // ✅ 소속그룹 필드 읽기 (2번째 컬럼)
             val groupName = row.str(idx1("소속그룹")).takeIf { it.isNotBlank() }
 
             basics.add(
                 Company(
                     name          = name,
-                    groupName     = groupName,  // ✅ 소속그룹 저장
+                    groupName     = groupName,
                     businessNumber= row.str(idx1("사업자번호")),
                     ceo           = row.str(idx1("대표자")),
                     address       = row.str(idx1("주소")),
@@ -94,7 +107,6 @@ class ExcelReader(private val context: Context) {
                     totalLoans    = row.num(idx1("총차입금(백만)", "총차입금")).toLong(),
                     bankLoans     = row.num(idx1("은행차입금(백만)", "은행차입금")).toLong(),
                     nonBankLoans  = row.num(idx1("비은행차입금(백만)", "비은행차입금")).toLong(),
-                    // 아래는 병합 단계에서 채움
                     financialRecords  = emptyList(),
                     majorShareholders = emptyList(),
                     loanDetails       = emptyList(),
@@ -119,7 +131,6 @@ class ExcelReader(private val context: Context) {
                 val year = row.num(idx("연도")).toInt()
                 if (co.isBlank() || year == 0) continue
 
-                // null 처리: 셀이 비어있으면 null 반환하는 헬퍼
                 fun numOrNull(colIdx: Int): Double? {
                     if (colIdx < 0) return null
                     val cell = row.getCell(colIdx) ?: return null
@@ -215,6 +226,52 @@ class ExcelReader(private val context: Context) {
         }
     }
 
+    // ── 계열집단 파싱 ──────────────────────────────────────────────────────
+
+    /**
+     * "계열집단" 시트 파싱
+     * - 1행: 대헤더 (순위 / 기업집단명 / 동일인 / 계열회사수 / 공정자산총액)
+     * - 2행: 소헤더 (2025년 / 2024년 / 변동 등 — 스킵)
+     * - 3행~: 실제 데이터
+     *
+     * 고정 컬럼 인덱스 사용 (헤더가 병합되어 있으므로):
+     *   A(0): 순위, D(3): 기업집단명, E(4): 동일인,
+     *   F(5): 계열회사수, H(7): 공정자산총액
+     */
+    private fun parseGroups(stream: InputStream): List<ChaebulGroup> {
+        val wb = WorkbookFactory.create(stream)
+        val groups = mutableListOf<ChaebulGroup>()
+
+        val sh = wb.getSheet("계열집단") ?: run {
+            wb.close()
+            return emptyList()
+        }
+
+        // 3행(rowIndex=2)부터 데이터 읽기 (1행 대헤더 + 2행 소헤더 스킵)
+        for (ri in 2..sh.lastRowNum) {
+            val row = sh.getRow(ri) ?: continue
+
+            val rankVal = row.numOrZero(0).toInt()
+            val groupName = row.str(3)
+
+            // 순위가 0이거나 기업집단명이 비어있으면 스킵
+            if (rankVal == 0 || groupName.isBlank()) continue
+
+            groups.add(
+                ChaebulGroup(
+                    rank         = rankVal,
+                    groupName    = groupName,
+                    ownerName    = row.str(4),
+                    companyCount = row.numOrZero(5).toInt(),
+                    totalAssets  = row.numOrZero(7)
+                )
+            )
+        }
+
+        wb.close()
+        return groups.sortedBy { it.rank }
+    }
+
     // ── 셀 읽기 헬퍼 확장함수 ──────────────────────────────────────────────
 
     private fun Cell.str(): String = when (cellType) {
@@ -250,4 +307,7 @@ class ExcelReader(private val context: Context) {
             else -> 0.0
         }
     }
+
+    /** num() 과 동일하나 명칭을 명확히 하기 위한 alias */
+    private fun Row.numOrZero(colIdx: Int): Double = num(colIdx)
 }
