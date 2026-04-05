@@ -16,46 +16,89 @@
             android:layout_height="wrap_content"
             app:cardCornerRadius="8dp"
             app:cardElevation="4dp"
-            android:layout_marginBottom="12dp">
+            android:layout_marginBottom="8dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="12dp">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="기본 정보"
-                    android:textSize="18sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/primary"
-                    android:layout_marginBottom="4dp" />
-
-                <TextView
-                    android:id="@+id/companyName"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="기업명"
-                    android:textSize="22sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/primary_text"
-                    android:layout_marginBottom="12dp" />
-
-                <TextView
-                    android:id="@+id/groupName"
+                <!-- ① 1행: 그룹 없으면 "기본 정보" 텍스트, 있으면 "OO 계열" 입체 버튼 -->
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:paddingVertical="6dp"
-                    android:paddingHorizontal="10dp"
-                    android:background="#E8EAF6"
-                    android:layout_marginBottom="8dp"
-                    android:visibility="gone" />  <!-- 기본 숨김, 그룹 있을 때만 표시 -->
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="2dp">
 
+                    <!-- 그룹 없을 때 표시 -->
+                    <TextView
+                        android:id="@+id/basicInfoTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="기본 정보"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/primary" />
 
+                    <!-- 그룹 있을 때 표시 (입체감 버튼) -->
+                    <Button
+                        android:id="@+id/groupBadgeButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        android:textColor="@android:color/white"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="14dp"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="2dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:elevation="4dp"
+                        android:stateListAnimator="@null"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+
+                <!-- ② 2행: 기업명 + 신용등급 배지 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+
+                    <TextView
+                        android:id="@+id/companyName"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="기업명"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/primary_text" />
+
+                    <TextView
+                        android:id="@+id/creditRatingBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/primary"
+                        android:layout_marginStart="8dp"
+                        android:paddingStart="6dp"
+                        android:paddingEnd="6dp"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="2dp"
+                        android:background="@drawable/bg_credit_rating_badge"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+
+                <!-- ③ 기본 상세 정보 -->
                 <TextView
                     android:id="@+id/businessNumber"
                     android:layout_width="wrap_content"
@@ -63,7 +106,7 @@
                     android:text="사업자번호: "
                     android:textSize="14sp"
                     android:textColor="@color/secondary_text"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="2dp" />
 
                 <TextView
                     android:id="@+id/ceo"
@@ -72,7 +115,7 @@
                     android:text="대표자: "
                     android:textSize="14sp"
                     android:textColor="@color/secondary_text"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="2dp" />
 
                 <TextView
                     android:id="@+id/foundedDate"
@@ -81,7 +124,7 @@
                     android:text="설립일: "
                     android:textSize="14sp"
                     android:textColor="@color/secondary_text"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="2dp" />
 
                 <TextView
                     android:id="@+id/industry"
@@ -90,7 +133,7 @@
                     android:text="업종: "
                     android:textSize="14sp"
                     android:textColor="@color/secondary_text"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="2dp" />
 
                 <TextView
                     android:id="@+id/employees"
@@ -99,7 +142,7 @@
                     android:text="종업원수: "
                     android:textSize="14sp"
                     android:textColor="@color/secondary_text"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="2dp" />
 
                 <TextView
                     android:id="@+id/companyType"
@@ -108,7 +151,7 @@
                     android:text="기업유형: "
                     android:textSize="14sp"
                     android:textColor="@color/secondary_text"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="2dp" />
 
                 <TextView
                     android:id="@+id/companySize"
@@ -117,7 +160,7 @@
                     android:text="기업규모: "
                     android:textSize="14sp"
                     android:textColor="@color/secondary_text"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="2dp" />
 
                 <TextView
                     android:id="@+id/address"
@@ -126,7 +169,7 @@
                     android:text="주소: "
                     android:textSize="14sp"
                     android:textColor="@color/secondary_text"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="2dp" />
 
                 <TextView
                     android:id="@+id/phone"
@@ -135,23 +178,9 @@
                     android:text="전화번호: "
                     android:textSize="14sp"
                     android:textColor="@color/secondary_text"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="2dp" />
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#E0E0E0"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginBottom="16dp" />
-
-                <TextView
-                    android:id="@+id/creditRating"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="신용등급: "
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/primary" />
+                <!-- ④ 신용등급 단독 표시 및 위 구분선 삭제 (기업명 옆으로 이동) -->
 
             </LinearLayout>
 
@@ -163,22 +192,22 @@
             android:layout_height="wrap_content"
             app:cardCornerRadius="8dp"
             app:cardElevation="4dp"
-            android:layout_marginBottom="12dp">
+            android:layout_marginBottom="8dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="12dp">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="주요 주주"
-                    android:textSize="18sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"
                     android:textColor="@color/primary"
-                    android:layout_marginBottom="12dp" />
+                    android:layout_marginBottom="6dp" />
 
                 <LinearLayout
                     android:id="@+id/shareholderLayout"
@@ -203,16 +232,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="12dp">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="주가 정보 (실시간)"
-                    android:textSize="18sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"
                     android:textColor="@color/primary"
-                    android:layout_marginBottom="12dp" />
+                    android:layout_marginBottom="6dp" />
 
                 <TextView
                     android:id="@+id/stockLoadingText"
@@ -235,7 +264,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0원"
-                        android:textSize="24sp"
+                        android:textSize="22sp"
                         android:textStyle="bold"
                         android:textColor="@color/primary_text" />
 
@@ -244,42 +273,42 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0원 (0.00%)"
-                        android:textSize="16sp"
-                        android:layout_marginTop="4dp" />
+                        android:textSize="14sp"
+                        android:layout_marginTop="2dp" />
 
                     <View
                         android:layout_width="match_parent"
                         android:layout_height="1dp"
                         android:background="#E0E0E0"
-                        android:layout_marginTop="12dp"
-                        android:layout_marginBottom="12dp" />
+                        android:layout_marginTop="8dp"
+                        android:layout_marginBottom="8dp" />
 
                     <TextView
                         android:id="@+id/marketCap"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="시가총액: 0억원"
-                        android:textSize="14sp"
+                        android:textSize="13sp"
                         android:textColor="@color/secondary_text"
-                        android:layout_marginTop="4dp" />
+                        android:layout_marginTop="2dp" />
 
                     <TextView
                         android:id="@+id/per"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="PER: 0.00"
-                        android:textSize="14sp"
+                        android:textSize="13sp"
                         android:textColor="@color/secondary_text"
-                        android:layout_marginTop="4dp" />
+                        android:layout_marginTop="2dp" />
 
                     <TextView
                         android:id="@+id/pbr"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="PBR: 0.00"
-                        android:textSize="14sp"
+                        android:textSize="13sp"
                         android:textColor="@color/secondary_text"
-                        android:layout_marginTop="4dp" />
+                        android:layout_marginTop="2dp" />
 
                 </LinearLayout>
 

@@ -2,6 +2,8 @@ package com.example.companyinfo
 
 import android.os.Bundle
 import android.util.Log
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -10,6 +12,7 @@ import com.google.android.material.tabs.TabLayout
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.net.URL
+import kotlin.math.abs
 
 /**
  * 기업 상세 정보 액티비티
@@ -24,6 +27,7 @@ class DetailActivity : AppCompatActivity() {
     private lateinit var tabLayout: TabLayout
     private lateinit var contentLayout: LinearLayout
     private lateinit var newsDelegate: NewsDelegate
+    private lateinit var gestureDetector: GestureDetector
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,12 +51,65 @@ class DetailActivity : AppCompatActivity() {
         contentLayout = findViewById(R.id.contentLayout)
 
         newsDelegate = NewsDelegate(this, contentLayout, company)
+        newsDelegate.initFirebasePressMap()  // Firebase 언론사 맵 실시간 구독 시작
 
+        setupSwipeGesture()
         setupTabs()
         showBasicInfo()
     }
 
     override fun onSupportNavigateUp(): Boolean { finish(); return true }
+
+    /** Activity 레벨에서 터치 이벤트를 가로채 GestureDetector에 전달합니다. */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        gestureDetector.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
+    }
+
+    // ── 스와이프 제스처 설정 ────────────────────────────────────────────────
+
+    /**
+     * 뉴스 상세 보기 화면에서 좌우 스와이프로 인접 기사를 탐색합니다.
+     *  - 왼쪽 스와이프 (←) : 목록 위(이전) 기사
+     *  - 오른쪽 스와이프 (→) : 목록 아래(다음) 기사
+     *
+     * dispatchTouchEvent 에서 호출되므로 ScrollView 가 터치를 소비해도
+     * Activity 레벨에서 항상 이벤트를 수신합니다.
+     */
+    private fun setupSwipeGesture() {
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            private val SWIPE_MIN_DISTANCE = 120    // px: 최소 이동 거리
+            private val SWIPE_MIN_VELOCITY = 200    // px/s: 최소 속도
+
+            override fun onFling(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                velocityX: Float,
+                velocityY: Float
+            ): Boolean {
+                // 뉴스 상세 화면일 때만 동작
+                if (!newsDelegate.isShowingDetail) return false
+
+                val diffX = e2.x - (e1?.x ?: return false)
+                val diffY = e2.y - (e1?.y ?: return false)
+
+                // 수평 스와이프 조건: 가로 이동 > 세로 이동, 거리·속도 임계값 충족
+                if (abs(diffX) <= abs(diffY)) return false
+                if (abs(diffX) < SWIPE_MIN_DISTANCE) return false
+                if (abs(velocityX) < SWIPE_MIN_VELOCITY) return false
+
+                return if (diffX > 0) {
+                    // → 오른쪽 스와이프 → 목록 아래(다음) 기사
+                    newsDelegate.navigateArticle(-1)
+                    true
+                } else {
+                    // ← 왼쪽 스와이프 → 목록 위(이전) 기사
+                    newsDelegate.navigateArticle(1)
+                    true
+                }
+            }
+        })
+    }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
@@ -92,6 +149,9 @@ class DetailActivity : AppCompatActivity() {
                 }
             }
         })
+
+        // 탭 행 오른쪽 끝에 돋보기 아이콘 추가
+        newsDelegate.attachSearchIconToTabRow(tabLayout)
     }
 
     // ── 기본정보 ───────────────────────────────────────────────────────────
@@ -104,7 +164,8 @@ class DetailActivity : AppCompatActivity() {
             val view = layoutInflater.inflate(R.layout.layout_basic_info, null)
 
             view.findViewById<TextView>(R.id.companyName).text    = company.name
-            setupGroupName(view)  // ✅ 그룹명 표시 (회사명과 사업자번호 사이)
+            setupGroupName(view)  // ✅ 1행: 그룹 있으면 버튼, 없으면 "기본 정보" 텍스트
+            setupCreditRatingBadge(view)  // ✅ 기업명 옆 신용등급 배지
             view.findViewById<TextView>(R.id.businessNumber).text = "사업자번호: ${company.businessNumber}"
             view.findViewById<TextView>(R.id.ceo).text            = "대표자: ${company.ceo}"
             view.findViewById<TextView>(R.id.foundedDate).text    = "설립일: ${company.foundedDate}"
@@ -112,7 +173,6 @@ class DetailActivity : AppCompatActivity() {
             view.findViewById<TextView>(R.id.phone).text          = "전화번호: ${company.phone}"
             view.findViewById<TextView>(R.id.industry).text       = "업종: ${company.industry}"
             view.findViewById<TextView>(R.id.employees).text      = "종업원수: ${String.format("%,d명", company.employees)}"
-            view.findViewById<TextView>(R.id.creditRating).text   = "신용등급: ${company.creditRating}"
             view.findViewById<TextView>(R.id.companyType).text    = "기업유형: ${company.companyType}"
             view.findViewById<TextView>(R.id.companySize).text    = "기업규모: ${company.companySize}"
 
@@ -142,44 +202,45 @@ class DetailActivity : AppCompatActivity() {
     }
 
     /**
-     * ✅ 그룹명 표시 및 클릭 이벤트 설정
-     * - groupName이 null/blank가 아닐 때만 표시
-     * - 클릭시 GroupStructureActivity로 이동
+     * ✅ 1행 표시:
+     *  - 소속그룹 없음 → "기본 정보" 텍스트(basicInfoTitle) 표시
+     *  - 소속그룹 있음 → basicInfoTitle 숨기고 "OO 계열" 입체 버튼(groupBadgeButton) 표시
+     *    클릭 시 지배구조도(GroupStructureActivity)로 이동
      */
     private fun setupGroupName(view: View) {
-        val groupTextView = view.findViewById<TextView>(R.id.groupName)
+        val basicInfoTitle   = view.findViewById<TextView>(R.id.basicInfoTitle)
+        val groupBadgeButton = view.findViewById<android.widget.Button>(R.id.groupBadgeButton)
 
         if (company.groupName.isNullOrBlank()) {
-            groupTextView.visibility = View.GONE
+            // 그룹 없음 → 기본 정보 텍스트만 표시
+            basicInfoTitle.visibility   = View.VISIBLE
+            groupBadgeButton.visibility = View.GONE
             return
         }
 
-        // 그룹명 표시 (클릭 가능한 스타일)
-        groupTextView.apply {
-            visibility = View.VISIBLE
-            text = "그룹: ${company.groupName} ☜"
+        // 그룹 있음 → 입체 버튼으로 "OO 계열" 표시
+        basicInfoTitle.visibility   = View.GONE
+        groupBadgeButton.visibility = View.VISIBLE
+        groupBadgeButton.apply {
+            text = "${company.groupName} 계열"
+            setBackgroundColor(resources.getColor(R.color.primary, null))
+            setOnClickListener { openGroupStructure(company.groupName!!) }
+        }
+    }
 
-            // 클릭 가능한 시각적 효과
-            setTextColor(resources.getColor(android.R.color.holo_blue_dark, null))
-            setCompoundDrawablesWithIntrinsicBounds(
-                0, 0,
-                android.R.drawable.ic_menu_info_details, // 또는 커스텀 아이콘
-                0
-            )
-            compoundDrawablePadding = 8
-
-            // 클릭 리스너
-            setOnClickListener {
-                openGroupStructure(company.groupName!!)
-            }
-
-            // 터치 피드백
-            isClickable = true
-            isFocusable = true
-            background = resources.getDrawable(
-                android.R.drawable.list_selector_background,
-                null
-            )
+    /**
+     * ✅ 기업명 옆 신용등급 배지 표시
+     *  - 신용등급이 있으면 "[A]" 형태로 creditRatingBadge에 표시
+     *  - 없으면 gone 유지
+     */
+    private fun setupCreditRatingBadge(view: View) {
+        val badge = view.findViewById<TextView>(R.id.creditRatingBadge)
+        val rating = company.creditRating
+        if (rating.isNullOrBlank()) {
+            badge.visibility = View.GONE
+        } else {
+            badge.text       = rating.uppercase()
+            badge.visibility = View.VISIBLE
         }
     }
 

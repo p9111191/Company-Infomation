@@ -1,6 +1,5 @@
 package com.example.companyinfo
 
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.text.Html
@@ -9,21 +8,24 @@ import android.text.SpannableString
 import android.text.TextUtils
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
-import android.text.style.StyleSpan
 import android.util.Log
 import android.view.Gravity
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import android.view.View
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.jsoup.nodes.Element
-import org.jsoup.nodes.TextNode
-import org.jsoup.select.NodeVisitor
 import java.net.URL
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
@@ -32,40 +34,53 @@ import java.util.*
 /**
  * 네이버 뉴스 검색 및 본문 표시를 담당하는 Delegate 클래스
  *
- * [변경 사항 v3]
- *  1. 주요 언론사 필터 완전 제거 → 모든 출처 허용
- *  2. 언론사 도메인 DB 대폭 확장 (표시 전용)
- *  3. 중복 제거 강화:
- *     - stopword에서 내용어("대표", "참여", "진행" 등) 제거 → 의미 없는 연결어만 남김
- *     - 1단계: 키워드 교집합 >= 2
- *     - 2단계: 키워드가 부족할 경우 trigram Jaccard >= 0.35 로 보완
- *  4. fetchNewsItems() 공통 헬퍼 유지
+ * [변경 사항 v6]
+ *  1. 돋보기 아이콘을 뉴스 탭 행에 배치할 수 있도록 createSearchIconView() 공개 메서드 제공
+ *  2. 뉴스 목록 내 검색 헤더 라벨 제거 (탭 행의 돋보기만 사용)
+ *  3. 키워드 검색 시 제목에 검색어가 포함된 기사만 표시
+ *  4. 검색 모드에서 뒤로가기 시 기업명 뉴스로 복귀
  */
 class NewsDelegate(
-    private val activity      : AppCompatActivity,
-    private val contentLayout : LinearLayout,
-    private val company       : Company
+    private val activity: AppCompatActivity,
+    private val contentLayout: LinearLayout,
+    private val company: Company
 ) {
+    // ── Firebase 언론사 맵 ───────────────────────────────────────────────────
+    private val pressMapRef = FirebaseDatabase
+        .getInstance("https://company-info-6a83a-default-rtdb.asia-southeast1.firebasedatabase.app")
+        .reference.child("press_map")  // ⚠️ asia-southeast1 리전은 URL 명시 필수
+    private val dynamicPressMap = mutableMapOf<String, String>()
+
     private var cachedNewsList: List<NaverNewsItem>? = null
-    /** ancestor ScrollView 기준 목록 스크롤 위치 (상세→목록 복귀 시 복원) */
     private var savedListScrollY: Int = 0
-    // ── 상수 ────────────────────────────────────────────────────────────────
+
+    /** 현재 상세 보기 중인 기사의 인덱스 (-1 = 상세 보기 아님) */
+    private var currentDetailIndex: Int = -1
+
+    /** 현재 활성화된 목록 (검색 모드면 검색 결과, 아니면 기업 뉴스) */
+    private val currentActiveList: List<NaverNewsItem>
+        get() = if (customSearchKeyword != null) cachedSearchNewsList ?: emptyList()
+        else cachedNewsList ?: emptyList()
+
+    // ── 검색 관련 상태 ────────────────────────────────────────────────────────
+    /** null이면 기업명 모드, non-null이면 사용자 검색어 모드 */
+    private var customSearchKeyword: String? = null
+    private var cachedSearchNewsList: List<NaverNewsItem>? = null
+
+    // Parser 인스턴스
+    private val detailParser = NewsDetailParser()
+
     companion object {
-        val NAVER_CLIENT_ID     = BuildConfig.NAVER_CLIENT_ID
+        val NAVER_CLIENT_ID = BuildConfig.NAVER_CLIENT_ID
         val NAVER_CLIENT_SECRET = BuildConfig.NAVER_CLIENT_SECRET
         const val NEWS_DISPLAY_COUNT = 50
-        private const val TAG        = "NewsDelegate"
+        private const val TAG     = "NewsDelegate"
+        private const val TAG_FB  = "NewsDelegate_FB"   // Firebase 전용 태그
 
-        /**
-         * 도메인 → 언론사명 매핑 (표시 전용 – 필터링과 무관)
-         * 미등록 도메인은 URL에서 자동 추출합니다.
-         */
         private val PRESS_DOMAIN_MAP = mapOf(
-            // 통신사
             "yna.co.kr"              to "연합뉴스",
             "newsis.com"             to "뉴시스",
             "news1.kr"               to "뉴스1",
-            // 경제지
             "mk.co.kr"               to "매일경제",
             "hankyung.com"           to "한국경제",
             "sedaily.com"            to "서울경제",
@@ -101,7 +116,7 @@ class NewsDelegate(
             "economytalk.kr"         to "이코노미톡뉴스",
             "ajunews.com"            to "아주경제",
             "getnews.co.kr"          to "글로벌경제신문",
-            // 종합일간지
+            "meconomynews.com"       to "시장경제",
             "chosun.com"             to "조선일보",
             "joins.com"              to "중앙일보",
             "joongang.co.kr"         to "중앙일보",
@@ -125,7 +140,6 @@ class NewsDelegate(
             "seoul.co.kr"            to "서울신문",
             "mediapen.com"           to "미디어펜",
             "segye.com"              to "세계일보",
-            // 방송
             "kbs.co.kr"              to "KBS",
             "mbc.co.kr"              to "MBC",
             "sbs.co.kr"              to "SBS",
@@ -133,7 +147,6 @@ class NewsDelegate(
             "mtn.co.kr"              to "MTN",
             "tvchosun.com"           to "TV조선",
             "jtbc.co.kr"             to "JTBC",
-            // 지역·전문지
             "busan.com"              to "부산일보",
             "imaeil.com"             to "매일신문",
             "knnews.co.kr"           to "경남신문",
@@ -144,7 +157,6 @@ class NewsDelegate(
             "sentv.co.kr"            to "서울경제TV",
             "kjdaily.com"            to "광주매일신문",
             "jndn.com"               to "전남매일",
-            "news2day.co.kr"         to "뉴스투데이",
             "job-post.co.kr"         to "잡포스트",
             "wikitree.co.kr"         to "위키트리",
             "naver.com"              to "네이버뉴스",
@@ -170,30 +182,119 @@ class NewsDelegate(
             "jnilbo.com"             to "전남일보",
             "polinews.co.kr"         to "폴리뉴스",
             "sidae.com"              to "시대",
-            "catchnews.kr"           to "CatchNews"
+            "moneys.co.kr"           to "시대",
+            "catchnews.kr"           to "CatchNews",
+            "lkp.news"               to "리버티코리아포스트",
+            "news.tf.co.kr"          to "더팩트",
+            "traveltimes.co.kr"      to "여행신문",
+            "thereport.co.kr"        to "더리포트",
+            "e2news.com"             to "이투뉴스",
+            "ttlnews.com"            to "퍼블릭뉴스통신",
+            "newsway.co.kr"          to "뉴스웨이",
+            "dkilbo.com"             to "대경일보",
+            "newsdream.kr"           to "뉴스드림",
+            "g-enews.com"            to "글로벌이코노믹",
+            "namdonews.com"          to "남도일도",
+            "ggilbo.com"             to "금강일보",
+            "public25.com"           to "퍼블릭경제",
+            "ngonews.kr"             to "한국NGO신문",
+            "newsroad.co.kr"         to "뉴스로드",
+            "updownnews.co.kr"       to "업다운뉴스",
+            "sisaweek.com"           to "시사위크",
+            "snmnews.com"            to "철강금속신문",
+            "the-stock.kr"           to "더스탁",
+            "theguru.co.kr"          to "TheGuru",
+            "newstown.co.kr"         to "뉴스타운",
+            "dtnews24.com"           to "디트뉴스",
+            "daejonilbo.com"         to "대전일보",
+            "worktoday.co.kr"        to "워크투데이",
+            "bntnews.co.kr"          to "BntNews",
+            "cbci.co.kr"             to "CBC뉴스",
+            "dealsitetv.com"         to "딜사이트TV",
+            "koreaittimes.com"       to "IT타임즈",
+            "hellot.net"             to "헬로티",
+            "ksg.co.kr"              to "코리아쉬핑가제트",
+            "klnews.co.kr"           to "물류신문",
+            "100ssd.co.kr"           to "백세시대",
+            "robotzine.co.kr"        to "로봇기술",
+            "mtnews.net"             to "기계신문",
+            "dailylog.co.kr"         to "데일리로그",
+            "headlinejeju.co.kr"     to "헤드라인제주",
+            "kookje.co.kr"           to "국제신문",
+            "engdaily.com"           to "엔지니어링데일리",
+            "newsprime.co.kr"        to "프라임경제",
+            "sisacast.kr"            to "시사캐스트",
+            "bizwork.co.kr"          to "비즈워크",
+            "ferrotimes.com"         to "페로타임즈",
+            "ebn.co.kr"              to "이비뉴스",
+            "financialpost"          to "파이낸셜포스트",
+            "hankooki.com"           to "한국아이",
+            "cstimes.com"            to "컨슈머타임스",
+            "ceoscoredaily.com"      to "CEO스코어데일리",
+            "finomy.com"             to "현대경제신문",
+            "dynews.co.kr"           to "동양일보",
+            "ccdn.co.kr"             to "충청매일",
+            "joongdo.co.kr"          to "중도일보",
+            "youthdaily.co.kr"       to "청년일보",
+            "ccdailynews.com"        to "충청일보",
+            "bzeronews.com"          to "공뉴스",
+            "smarttoday.co.kr"       to "스마트투데이",
+            "aptn.co.kr"             to "아파트관리신문",
+            "energydaily.co.kr"      to "에너지데일리",
+            "hinews.co.kr"           to "하이뉴스",
+            "topdaily.kr"            to "탑데일리",
+            "ekn.kr"                 to "에너지경제",
+            "seoulwire.com"          to "서울와이어",
+            "kpinews.kr"             to "KPI뉴스",
+            "ksilbo.co.kr"           to "경상일보",
+            "energy-news.co.kr"      to "에너지신문",
+            "globalepic.co.kr"       to "글로벌에픽",
+            "lcnews.co.kr"           to "라이센스뉴스",
+            "smartfn.co.kr"          to "스마트비즈",
+            "lawissue.co.kr"         to "로이슈",
+            "discoverynews.kr"       to "디스커버리뉴스",
+            "dailypop.kr"            to "데일리팝",
+            "sateconomy.co.kr"       to "토요경제",
+            "economist.co.kr"        to "이코노미스트",
+            "dailysecu.com"          to "데일리시큐",
+            "megaeconomy.co.kr"      to "메가경제",
+            "seoultimes.news"        to "서울타임즈뉴스",
+            "econovill.com"          to "이코노믹리뷰",
+            "newsbrite.net"          to "뉴스브라이트",
+            "wemakenews.co.kr"       to "위메이크뉴스",
+            "siminilbo.co.kr"        to "시민일보",
+            "ezyeconomy.com"         to "이지경제",
+            "mcnews.co.kr"           to "매일건설신문",
+            "safetimes.co.kr"        to "세이프타임즈",
+            "newsmaker.or.kr"        to "뉴스메이커",
+            "breaknews.com"          to "브레이크뉴스",
+            "s-journal.co.kr"        to "S-저널",
+            "ilyo.co.kr"             to "일요신문",
+            "thelec.kr"              to "디일렉",
+            "huffingtonpost.kr"      to "허프포스트",
+            "goodkyung.com"          to "굿모닝경제",
+            "asiatime.co.kr"         to "아시아타임즈",
+            "areyou.co.kr"           to "아유경제",
+            "kmib.co.kr"             to "국민일보",
+            "naeil.com"              to "내일신문",
+            "weeklytoday.com"        to "위클리오늘",
+            "kpenews.com"            to "한국정경신문",
+            "handmk.com"             to "핸드메이커",
+            "sportsq.co.kr"          to "스포츠Q",
+            "woodkorea.co.kr"        to "한국목재신문",
+            "itbiznews.com"          to "IT비즈뉴스",
+            "newstopkorea.com"       to "뉴스탑",
+            "press9.kr"              to "프레스9",
+            "whitepaper.co.kr"       to "화이트페이퍼",
+            "newsclaim.co.kr"        to "뉴스클레임",
+            "mhj21.com"              to "문화저널21",
+            "wikileaks-kr.org"       to "위키리크스",
+            "newsfc.co.kr"           to "금융소비자뉴스"
         )
 
-        /**
-         * 중복 판정 기준 1 – 키워드 교집합
-         *
-         * [핵심 수정] stopword에서 "대표", "참여", "진행" 등 내용어를 제거했으므로
-         * 이 단어들이 시그니처에 포함되어 threshold 2를 쉽게 충족합니다.
-         * 예) "오일근 대표 안전교육 참여" vs "오일근 대표 임직원 안전교육"
-         *     → 교집합 {오일근, 대표, 안전} >= 2 → 중복 처리 ✓
-         */
         private const val KEYWORD_THRESHOLD = 2
-
-        /**
-         * 중복 판정 기준 2 – trigram Jaccard 유사도 (키워드 보완용)
-         * 키워드 수가 적어도 trigram 문자열이 많이 겹치면 중복으로 판단합니다.
-         */
         private const val TRIGRAM_THRESHOLD = 0.35
 
-        /**
-         * 진짜 의미 없는 연결어·조사만 stopword로 지정합니다.
-         * ❌ 제거됨: "대표", "실시", "개최", "진행", "참여", "현장"  ← 내용어이므로 복원
-         * ✅ 유지됨: 순수 접속어/시간어 등 판별에 도움이 안 되는 단어만
-         */
         private val STOP_WORDS = setOf(
             "관련", "통해", "위해", "위한", "대한", "따른",
             "이후", "지난", "오늘", "내일", "이번", "해당",
@@ -204,21 +305,16 @@ class NewsDelegate(
     var isShowingDetail: Boolean = false
         private set
 
-    /** dp → px 변환 */
     private fun Int.dp(): Int =
         (this * activity.resources.displayMetrics.density + 0.5f).toInt()
 
-    /**
-     * contentLayout의 상위 계층에서 첫 번째 ScrollView를 찾아 반환합니다.
-     * contentLayout은 LinearLayout이므로 스크롤은 외부 ScrollView가 담당합니다.
-     */
     private fun findAncestorScrollView(): android.widget.ScrollView? {
         var v: android.view.ViewParent? = contentLayout.parent
         repeat(12) {
             when (v) {
                 is android.widget.ScrollView -> return v as android.widget.ScrollView
-                is android.view.View         -> v = (v as android.view.View).parent
-                else                         -> return null
+                is android.view.View -> v = (v as android.view.View).parent
+                else -> return null
             }
         }
         return null
@@ -227,11 +323,59 @@ class NewsDelegate(
     // ── Public API ───────────────────────────────────────────────────────────
 
     /**
-     * 회사명으로 뉴스 검색 → 제목 필터 → 중복 제거 → 목록 표시
-     * (언론사 필터 없음 – 모든 출처 허용)
+     * DetailActivity.setupTabs() 에서 호출합니다.
+     * TabLayout 내부 SlidingTabStrip(첫 번째 자식 ViewGroup)에
+     * 🔍 아이콘을 직접 추가합니다.
+     * → tabLayout.parent를 건드리지 않으므로 기존 레이아웃이 깨지지 않습니다.
      */
+    fun attachSearchIconToTabRow(tabLayout: com.google.android.material.tabs.TabLayout) {
+        // TabLayout의 첫 번째 자식이 SlidingTabStrip (내부 LinearLayout)
+        val tabStrip = tabLayout.getChildAt(0) as? android.view.ViewGroup ?: return
+        if (tabStrip.findViewWithTag<View>("news_search_icon") != null) return  // 중복 방지
+
+        val sizePx = 40.dp()
+        tabStrip.addView(TextView(activity).apply {
+            tag  = "news_search_icon"
+            text = "🔍"
+            textSize = 16f
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(sizePx, LinearLayout.LayoutParams.MATCH_PARENT)
+            val outValue = android.util.TypedValue()
+            activity.theme.resolveAttribute(
+                android.R.attr.selectableItemBackgroundBorderless, outValue, true
+            )
+            setBackgroundResource(outValue.resourceId)
+            setOnClickListener { showSearchDialog() }
+        })
+    }
+
+    /**
+     * 기사 상세 화면에서 인접 기사로 이동합니다.
+     *  delta = -1 → 목록 위(이전) 기사
+     *  delta = +1 → 목록 아래(다음) 기사
+     */
+    fun navigateArticle(delta: Int) {
+        if (!isShowingDetail) return
+        val list = currentActiveList
+        val newIndex = currentDetailIndex + delta
+        if (newIndex < 0) {
+            android.widget.Toast.makeText(
+                activity, "첫 번째 기사입니다.", android.widget.Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        if (newIndex >= list.size) {
+            android.widget.Toast.makeText(
+                activity, "마지막 기사입니다.", android.widget.Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        showNewsDetail(list[newIndex], newIndex)
+    }
+
     fun showNews(forceRefresh: Boolean = false) {
         isShowingDetail = false
+        customSearchKeyword = null
 
         if (!forceRefresh && cachedNewsList != null) {
             contentLayout.removeAllViews()
@@ -247,25 +391,32 @@ class NewsDelegate(
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // 1. 이름 정제 (주식회사 등 제거)
                 val searchName = company.name.toCleanCompanyName()
-                // 2. 영문 발음 변환 (에스케이 -> SK)
                 val engName = searchName.translateToEnglishName()
-
-                // 3. 검색은 영문 변환명으로 수행 (기사 양이 더 많음)
                 val query = URLEncoder.encode(engName, "UTF-8")
                 val allFetched = fetchNewsItems(query, pages = 5)
 
-                // 4. 필터링: 한글명 OR 영문명 둘 중 하나라도 제목에 포함되면 허용
-                val titleFiltered = allFetched.filter {
-                    it.title.contains(searchName, ignoreCase = true) ||
-                            it.title.contains(engName, ignoreCase = true)
+                val titleFiltered = allFetched.filter { item ->
+                    val title = item.title
+                    if (searchName == "호텔롯데") {
+                        (title.contains("롯데", ignoreCase = true) && title.contains("호텔", ignoreCase = true)) ||
+                                title.contains(engName, ignoreCase = true)
+                    } else {
+                        title.contains(searchName, ignoreCase = true) ||
+                                title.contains(engName, ignoreCase = true)
+                    }
                 }
-
-                val categoryFiltered = titleFiltered.filter { item -> !item.isEntertainmentOrSports() }
-
-                // 5. 중복 제거 시에도 기준 이름을 engName으로 전달하여 정확도 향상
+                // 제외사이트 목록
+                val categoryFiltered = titleFiltered.filter { item ->
+                    !item.isEntertainmentOrSports()
+                            && !item.link.contains("itooza.com", ignoreCase = true)
+                            && !item.link.contains("ftimes.kr", ignoreCase = true)
+                            && !item.link.contains("gamemeca.com", ignoreCase = true)
+                            && !item.link.contains("gameshot.net", ignoreCase = true)
+                }
                 val deduplicated = categoryFiltered.deduplicateBySimilarTitle(engName)
+
+                logSummary(allFetched.size, titleFiltered.size, deduplicated.size)
 
                 cachedNewsList = deduplicated.take(NEWS_DISPLAY_COUNT)
 
@@ -283,17 +434,130 @@ class NewsDelegate(
         }
     }
 
-    // 3. 기사 상세에서 탭 클릭 시 리스트로 즉시 복귀하는 함수 (재검색 방지용)
+    /**
+     * 사용자가 입력한 [keyword]로 뉴스를 검색합니다.
+     * 제목에 [keyword]가 포함된 기사만 표시합니다.
+     */
+    fun showNewsWithKeyword(keyword: String) {
+        if (keyword.isBlank()) return
+
+        isShowingDetail = false
+        customSearchKeyword = keyword
+        cachedSearchNewsList = null
+
+        savedListScrollY = 0
+        findAncestorScrollView()?.scrollTo(0, 0)
+
+        contentLayout.removeAllViews()
+        contentLayout.addView(buildLoadingLayout("'$keyword' 검색 중..."))
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val query = URLEncoder.encode(keyword, "UTF-8")
+                val allFetched = fetchNewsItems(query, pages = 3)
+
+                // 제목에 검색어가 포함된 기사만 필터링
+                val titleFiltered = allFetched.filter { item ->
+                    val title = item.title
+                    if (keyword == "호텔롯데") {
+                        title.contains("호텔롯데") && title.contains("롯데호텔")
+                    } else {
+                        // 일반 검색어는 기존 방식 유지
+                        title.contains(keyword, ignoreCase = true)
+                    }
+                }
+
+                Log.d(TAG, "검색어: '$keyword', 수집: ${allFetched.size}개, 제목필터 후: ${titleFiltered.size}개")
+
+                val categoryFiltered = titleFiltered.filter { item ->
+                    !item.isEntertainmentOrSports() && !item.link.contains("itooza.com", ignoreCase = true)
+                }
+                val deduplicated = categoryFiltered.deduplicateBySimilarTitle(keyword)
+
+                cachedSearchNewsList = deduplicated.take(NEWS_DISPLAY_COUNT)
+
+                withContext(Dispatchers.Main) {
+                    contentLayout.removeAllViews()
+                    if (cachedSearchNewsList.isNullOrEmpty()) {
+                        contentLayout.addView(buildEmptyView("'$keyword' 관련 뉴스가 없습니다."))
+                    } else {
+                        renderNewsList(cachedSearchNewsList!!)
+                    }
+                }
+            } catch (e: Exception) {
+                showError("뉴스를 불러올 수 없습니다.")
+            }
+        }
+    }
+
     fun backToListIfDetail() {
-        if (isShowingDetail && cachedNewsList != null) {
+        if (isShowingDetail) {
             isShowingDetail = false
             contentLayout.removeAllViews()
-            renderNewsList(cachedNewsList!!)
+            val keyword = customSearchKeyword
+            if (keyword != null && cachedSearchNewsList != null) {
+                renderNewsList(cachedSearchNewsList!!)
+            } else if (cachedNewsList != null) {
+                renderNewsList(cachedNewsList!!)
+            }
         }
     }
 
     fun handleBack(): Boolean {
-        return if (isShowingDetail) { showNews(); true } else false
+        return when {
+            isShowingDetail -> {
+                backToListIfDetail()
+                true
+            }
+            customSearchKeyword != null -> {
+                // 검색 모드 → 기업 뉴스로 복귀
+                showNews()
+                true
+            }
+            else -> false
+        }
+    }
+
+    // ── 검색 다이얼로그 ──────────────────────────────────────────────────────
+
+    private fun showSearchDialog() {
+        val editText = EditText(activity).apply {
+            hint = "검색어를 입력하세요"
+            isSingleLine = true
+            customSearchKeyword?.let { setText(it) }
+        }
+
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24.dp(), 8.dp(), 24.dp(), 0)
+            addView(editText)
+        }
+
+        AlertDialog.Builder(activity)
+            .setTitle("뉴스 검색")
+            .setView(container)
+            .setPositiveButton("검색") { _, _ ->
+                val keyword = editText.text.toString().trim()
+                Log.d("NewsDelegate", "검색 버튼 클릭됨. editText: '$editText'") // 로그 추가
+                Log.d("NewsDelegate", "검색 버튼 클릭됨. 입력값: '$keyword'") // 로그 추가
+                if (keyword.isNotEmpty()) showNewsWithKeyword(keyword)
+            }
+            .setNegativeButton("취소", null)
+            .apply {
+                // 검색 모드일 때 기업 뉴스로 돌아가는 버튼 제공
+                if (customSearchKeyword != null) {
+                    setNeutralButton("기업 뉴스로") { _, _ -> showNews() }
+                }
+            }
+            .show()
+
+        // 키보드 자동 표시
+        editText.postDelayed({
+            editText.requestFocus()
+            val imm = activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                    as android.view.inputmethod.InputMethodManager
+            imm.showSoftInput(editText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }, 150)
     }
 
     // ── 공통 API 호출 헬퍼 ───────────────────────────────────────────────────
@@ -301,30 +565,29 @@ class NewsDelegate(
     private fun fetchNewsItems(encodedQuery: String, pages: Int): List<NaverNewsItem> {
         val result = mutableListOf<NaverNewsItem>()
         repeat(pages) { page ->
-            val start  = page * 100 + 1
+            val start = page * 100 + 1
             val apiUrl = "https://openapi.naver.com/v1/search/news.json" +
                     "?query=$encodedQuery&display=100&sort=date&start=$start"
             try {
                 val conn = (URL(apiUrl).openConnection() as java.net.HttpURLConnection).apply {
                     requestMethod = "GET"
-                    setRequestProperty("X-Naver-Client-Id",     NAVER_CLIENT_ID)
+                    setRequestProperty("X-Naver-Client-Id", NAVER_CLIENT_ID)
                     setRequestProperty("X-Naver-Client-Secret", NAVER_CLIENT_SECRET)
                     connectTimeout = 5_000
-                    readTimeout    = 5_000
+                    readTimeout = 5_000
                 }
                 if (conn.responseCode == 200) {
-                    val json  = JSONObject(conn.inputStream.bufferedReader().readText())
+                    val json = JSONObject(conn.inputStream.bufferedReader().readText())
                     val items = json.getJSONArray("items")
-                    // Log.d(TAG, "페이지 ${page + 1}: ${items.length()}개")
                     for (i in 0 until items.length()) {
-                        val obj     = items.getJSONObject(i)
+                        val obj = items.getJSONObject(i)
                         val rawDate = obj.optString("pubDate")
                         result.add(NaverNewsItem(
-                            title       = Html.fromHtml(obj.optString("title"),       Html.FROM_HTML_MODE_COMPACT).toString(),
-                            link        = obj.optString("originallink").ifEmpty { obj.optString("link") },
-                            naverLink   = obj.optString("link"),
-                            pubDate     = rawDate.toFormattedDate(),
-                            pubDateRaw  = rawDate,
+                            title = Html.fromHtml(obj.optString("title"), Html.FROM_HTML_MODE_COMPACT).toString(),
+                            link = obj.optString("originallink").ifEmpty { obj.optString("link") },
+                            naverLink = obj.optString("link"),
+                            pubDate = rawDate.toFormattedDate(),
+                            pubDateRaw = rawDate,
                             description = Html.fromHtml(obj.optString("description"), Html.FROM_HTML_MODE_COMPACT).toString()
                         ))
                     }
@@ -339,59 +602,146 @@ class NewsDelegate(
         return result
     }
 
-    // ── 언론사명 추출 (표시 전용) ────────────────────────────────────────────
+    // ── Firebase 언론사 맵 로드 ──────────────────────────────────────────────
 
     /**
-     * 원본 링크에서 언론사명을 반환합니다.
-     * PRESS_DOMAIN_MAP에 없으면 URL 두 번째 레벨 도메인을 대문자로 표시합니다.
-     * 예) "https://www.abcnews.co.kr/..." → "ABCNEWS"
+     * Firebase Realtime Database에서 press_map 노드를 실시간으로 구독합니다.
+     * Activity 생성 시점(또는 NewsDelegate 초기화 직후)에 한 번 호출하세요.
      */
-    private fun String.extractPressName(): String {
-        PRESS_DOMAIN_MAP.entries.firstOrNull { (domain, _) -> contains(domain) }
-            ?.let { return it.value }
-        // 미등록 도메인: 두 번째 레벨 도메인 추출
-        return runCatching {
-            val host = URL(this).host.removePrefix("www.")
-            host.split(".").first().uppercase()
-        }.getOrDefault("기타")
+    fun initFirebasePressMap() {
+        // ✅ 호출 확인 — 이 로그가 안 보이면 initFirebasePressMap() 자체가 불리지 않은 것
+        Log.d(TAG_FB, "━━━━ initFirebasePressMap() 호출됨 ━━━━")
+        Log.d(TAG_FB, "  pressMapRef 경로: ${pressMapRef.path}")
+
+        pressMapRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                // ✅ 이 로그가 안 보이면 Firebase 연결 자체가 안 된 것
+                Log.d(TAG_FB, "━━━━ onDataChange 수신 ━━━━")
+                Log.d(TAG_FB, "  snapshot 존재 여부: ${snapshot.exists()}")
+                Log.d(TAG_FB, "  snapshot 자식 수  : ${snapshot.childrenCount}")
+
+                if (!snapshot.exists()) {
+                    Log.w(TAG_FB, "  ⚠️ press_map 노드가 Firebase에 존재하지 않음 — 콘솔에서 데이터 확인 필요")
+                    return
+                }
+
+                dynamicPressMap.clear()
+                snapshot.children.forEach { child ->
+                    val domain = child.key?.replace("_", ".") ?: return@forEach
+                    dynamicPressMap[domain] = child.value.toString()
+                }
+                Log.d(TAG_FB, "  ✅ dynamicPressMap 업데이트 완료: ${dynamicPressMap.size}개")
+                // Log.d(TAG_FB, "  신규 추가 도메인(Firebase 전용): ${dynamicPressMap.keys.filter { it !in PRESS_DOMAIN_MAP }.joinToString()}")
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                // ✅ 이 로그가 보이면 Firebase 권한/네트워크 문제
+                Log.e(TAG_FB, "━━━━ onCancelled — Firebase 로드 실패 ━━━━")
+                Log.e(TAG_FB, "  code   : ${error.code}")
+                Log.e(TAG_FB, "  message: ${error.message}")
+                Log.e(TAG_FB, "  details: ${error.details}")
+            }
+        })
     }
 
-    // ── 강화된 중복 제거 ──────────────────────────────────────────────────────
-
     /**
-     * 이중 조건으로 중복을 판단합니다.
-     *
-     * 조건 A (키워드 교집합):
-     *   - 제목에서 회사명·순수 접속어만 제거한 뒤 2글자 이상 단어 집합 생성
-     *   - 기존 기사와 교집합 >= KEYWORD_THRESHOLD (2)이면 중복
-     *
-     * 조건 B (trigram Jaccard):
-     *   - 키워드 수가 3개 미만으로 적을 때 보완
-     *   - 공백을 제거한 제목의 3글자 연속 문자열 집합으로 Jaccard 계산
-     *   - 유사도 >= TRIGRAM_THRESHOLD (0.35)이면 중복
-     *
-     * A 또는 B 중 하나라도 충족하면 중복으로 제거합니다.
+     * 새로 발견한 언론사 도메인과 이름을 Firebase에 저장합니다.
+     * 도메인의 점(.)은 Firebase 키에서 허용되지 않으므로 (_)로 치환합니다.
      */
+    private fun saveNewPressToFirebase(domain: String, name: String) {
+        val safeKey = domain.replace(".", "_")
+        Log.d(TAG_FB, "[saveNewPress] 저장 시도 → key=$safeKey, name=$name")
+        pressMapRef.child(safeKey).setValue(name)
+            .addOnSuccessListener {
+                Log.d(TAG_FB, "[saveNewPress] ✅ 저장 완료: $domain → $name")
+                // 로컬 맵에도 즉시 반영 (onDataChange 대기 없이 바로 적용)
+                dynamicPressMap[domain] = name
+                Log.d(TAG_FB, "[saveNewPress] dynamicPressMap 즉시 반영 완료 (현재 ${dynamicPressMap.size}개)")
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG_FB, "[saveNewPress] ❌ 저장 실패: $domain — ${e.message}")
+            }
+    }
+
+    // ── 언론사명 추출 ────────────────────────────────────────────────────────
+
+    private fun String.extractPressName(title: String = "", description: String = ""): String {
+        val url = this
+        /* Log.d(TAG, "────────────────────────────────────────")
+        Log.d(TAG, "[extractPressName] URL     : $url")
+        Log.d(TAG, "[extractPressName] title   : $title")
+        Log.d(TAG, "[extractPressName] dynamicPressMap 크기: ${dynamicPressMap.size}") */
+
+        // 1순위: Firebase에서 실시간으로 받아온 dynamicPressMap 검색
+        val dynamicHit = dynamicPressMap.entries.firstOrNull { (domain, _) -> url.contains(domain) }
+        if (dynamicHit != null) {
+            return dynamicHit.value
+        } else {
+        }
+
+        // 2순위: 하드코딩된 정적 맵(PRESS_DOMAIN_MAP) 검색
+        val staticHit = PRESS_DOMAIN_MAP.entries.firstOrNull { (domain, _) -> url.contains(domain) }
+        if (staticHit != null) {
+            return staticHit.value
+        }
+
+        // 3순위: 제목/설명에서 언론사 브래킷 패턴으로 유추
+        if (title.isNotBlank() || description.isNotBlank()) {
+            val regex = Regex("""\[([가-힣a-zA-Z0-9]+(?:신문|일보|뉴스|통신|방송|경제|미디어|투데이|타임즈|저널|TV|tv))]""")
+            val matchInTitle = regex.find(title)
+            val matchInDesc  = regex.find(description)
+
+            val match = matchInTitle ?: matchInDesc
+            if (match != null) {
+                val foundName = match.groupValues[1]
+                Log.d(TAG, "[extractPressName] ✅ 3순위 정규식 HIT → foundName=$foundName")
+                // 도메인 추출 후 Firebase에 자동 등록
+                runCatching {
+                    val domain = URL(url).host.removePrefix("www.")
+                    Log.d(TAG, "[extractPressName] Firebase 저장 시도 → domain=$domain, name=$foundName")
+                    if (domain.isNotBlank()) {
+                        saveNewPressToFirebase(domain, foundName)
+                    }
+                }.onFailure { e ->
+                    Log.e(TAG, "[extractPressName] 도메인 추출 실패: ${e.message}")
+                }
+                return foundName
+            } else {
+                Log.w(TAG, "[extractPressName] ❌ 3순위 정규식 MISS — 브래킷 언론사명 패턴 없음")
+            }
+        } else {
+            Log.w(TAG, "[extractPressName] ❌ 3순위 스킵 — title/description 모두 비어있음")
+        }
+
+        // 최종 폴백: 호스트명 첫 번째 파트를 대문자로 사용
+        val fallback = runCatching {
+            val host = URL(url).host.removePrefix("www.")
+            host.split(".").first().uppercase()
+        }.getOrDefault("기타")
+        Log.w(TAG, "[extractPressName] ⚠️ 최종 폴백 → $fallback (Firebase 미등록 도메인)")
+        return fallback
+    }
+
+    // ── 강화된 중복 제거 ─────────────────────────────────────────────────────
+
     private fun List<NaverNewsItem>.deduplicateBySimilarTitle(
         companyName: String
     ): List<NaverNewsItem> {
         data class Signature(val keywords: Set<String>, val trigrams: Set<String>)
 
-        val kept      = mutableListOf<NaverNewsItem>()
-        val keptSigs  = mutableListOf<Signature>()
+        val kept = mutableListOf<NaverNewsItem>()
+        val keptSigs = mutableListOf<Signature>()
 
         for (item in this) {
             val keywords = item.title.createKeywords(companyName)
             val trigrams = item.title.createTrigrams(companyName)
-            val sig      = Signature(keywords, trigrams)
+            val sig = Signature(keywords, trigrams)
 
             val isDuplicate = keptSigs.any { existing ->
-                // 조건 A: 키워드 교집합
                 val keywordOverlap = keywords.intersect(existing.keywords).size >= KEYWORD_THRESHOLD
-                // 조건 B: trigram Jaccard (키워드가 3개 미만이거나 A 실패 시 보완)
                 val trigramSimilar = run {
                     val inter = trigrams.intersect(existing.trigrams).size.toDouble()
-                    val union  = trigrams.union(existing.trigrams).size.toDouble()
+                    val union = trigrams.union(existing.trigrams).size.toDouble()
                     if (union == 0.0) false else (inter / union) >= TRIGRAM_THRESHOLD
                 }
                 keywordOverlap || trigramSimilar
@@ -400,18 +750,11 @@ class NewsDelegate(
             if (!isDuplicate) {
                 kept.add(item)
                 keptSigs.add(sig)
-            } else {
-                // Log.d(TAG, "중복 제거: ${item.title}")
             }
         }
         return kept
     }
 
-    /**
-     * 키워드 집합 추출
-     * - 회사명 제거 후 2글자 이상 의미 있는 단어만 유지
-     * - STOP_WORDS는 순수 접속어·시간어만 포함 (내용어 제외)
-     */
     private fun String.createKeywords(companyName: String): Set<String> {
         val pureName = companyName.toCleanCompanyName()
         return this
@@ -424,10 +767,6 @@ class NewsDelegate(
             .toSet()
     }
 
-    /**
-     * trigram 집합 추출 (공백·특수문자 제거 후 3글자 슬라이딩 윈도우)
-     * 예) "안전교육강화" → {"안전교", "전교육", "교육강", "육강화"}
-     */
     private fun String.createTrigrams(companyName: String): Set<String> {
         val pureName = companyName.toCleanCompanyName()
         val normalized = this
@@ -439,31 +778,49 @@ class NewsDelegate(
             .toSet()
     }
 
+    // ── 로그 요약 ────────────────────────────────────────────────────────────
+
+    private fun logSummary(total: Int, titleFiltered: Int, deduplicated: Int) {
+        Log.d(TAG, "============================================")
+        Log.d(TAG, "수집 총계  : ${total}개")
+        Log.d(TAG, "제목 필터  : ${total - titleFiltered}개 제외 → ${titleFiltered}개 남음")
+        Log.d(TAG, "중복 제거  : ${titleFiltered - deduplicated}개 제외 → ${deduplicated}개 남음")
+        Log.d(TAG, "최종 표시  : ${minOf(deduplicated, NEWS_DISPLAY_COUNT)}개")
+        Log.d(TAG, "============================================")
+    }
+
     // ── 뉴스 목록 렌더링 ─────────────────────────────────────────────────────
-    // contentLayout은 외부 ScrollView 안에 있으므로 내부 ScrollView를 만들지 않고
-    // 아이템을 직접 contentLayout에 추가합니다. 스크롤은 ancestor ScrollView가 담당합니다.
+
+    /**
+     * 제목에 공란이 없을 때 모바일에서 줄바꿈이 되지 않는 문제 해결:
+     * 콤마(,), 앤드(&), 중간마침표(·) 뒤에 Zero-Width Space(\u200B)를 삽입해
+     * 해당 위치에서 줄바꿈 기회를 만듭니다.
+     */
+    private fun String.insertLineBreakOpportunities(): String =
+        this
+            .replace(",", ",\u200B")
+            .replace("&", "&\u200B")
+            .replace("·", "·\u200B")
 
     private fun renderNewsList(newsList: List<NaverNewsItem>) {
-        newsList.forEach { news ->
-            val pressName   = news.link.extractPressName()
+        newsList.forEachIndexed { index, news ->
+            val pressName = news.link.extractPressName(news.title, news.description)
             val displayDate = news.pubDateRaw.toDisplayDate()
-            val fullText    = "${news.title}   $displayDate   $pressName"
+            val wrappableTitle = news.title.insertLineBreakOpportunities()
+            val fullText = "${wrappableTitle}   $displayDate   $pressName"
 
             val spannable = SpannableString(fullText).apply {
-                val titleEnd = news.title.length
-                val dateEnd  = titleEnd + 3 + displayDate.length
+                val titleEnd = wrappableTitle.length
+                val dateEnd = titleEnd + 3 + displayDate.length
 
-                // 제목: 진한 검정 (일반체)
                 setSpan(ForegroundColorSpan(Color.parseColor("#212121")),
                     0, titleEnd, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
 
-                // 날짜: 회색 + 작게
                 setSpan(ForegroundColorSpan(Color.parseColor("#888888")),
                     titleEnd, dateEnd, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
                 setSpan(RelativeSizeSpan(0.85f),
                     titleEnd, dateEnd, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
 
-                // 언론사: 파란색 + 작게
                 setSpan(ForegroundColorSpan(Color.parseColor("#1976D2")),
                     dateEnd, fullText.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
                 setSpan(RelativeSizeSpan(0.85f),
@@ -471,23 +828,20 @@ class NewsDelegate(
             }
 
             contentLayout.addView(TextView(activity).apply {
-                text      = spannable
-                textSize  = 15f
-                maxLines  = 2
+                text = spannable
+                textSize = 15f
+                maxLines = 2
                 ellipsize = TextUtils.TruncateAt.END
                 setPadding(6.dp(), 6.dp(), 6.dp(), 6.dp())
                 setOnClickListener {
-                    // ★ 클릭 시점에 ancestor ScrollView의 scrollY를 즉시 저장
                     savedListScrollY = findAncestorScrollView()?.scrollY ?: 0
-                    // Log.d(TAG, "목록 스크롤 위치 저장: $savedListScrollY")
-                    showNewsDetail(news)
+                    showNewsDetail(news, index)
                 }
                 val outValue = android.util.TypedValue()
                 activity.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
                 setBackgroundResource(outValue.resourceId)
             })
 
-            // 구분선
             contentLayout.addView(View(activity).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 1
@@ -496,7 +850,6 @@ class NewsDelegate(
             })
         }
 
-        // ★ 상세 → 목록 복귀 시 ancestor ScrollView 스크롤 위치 복원
         if (savedListScrollY > 0) {
             val targetY = savedListScrollY
             val sv = findAncestorScrollView()
@@ -504,9 +857,10 @@ class NewsDelegate(
         }
     }
 
-    // ── 뉴스 상세 보기 (네이버 뉴스 본문 추출 최적화) ───────────────────────────
+    // ── 뉴스 상세 보기 ───────────────────────────────────────────────────────
 
-    private fun showNewsDetail(news: NaverNewsItem) {
+    private fun showNewsDetail(news: NaverNewsItem, index: Int = currentDetailIndex) {
+        currentDetailIndex = index
         isShowingDetail = true
 
         contentLayout.removeAllViews()
@@ -514,87 +868,105 @@ class NewsDelegate(
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // [검증 1] 어떤 링크가 들어오는지 로그로 확인
-                Log.d(TAG, "원본 링크(originallink): ${news.link}")
-                Log.d(TAG, "네이버 링크(link): ${news.naverLink}")
+                Log.d(TAG, "원본 링크: ${news.link}")
+                Log.d(TAG, "네이버 링크: ${news.naverLink}")
 
-                // [로직 수정 v3] 네이버가 본문을 직접 호스팅하는 경우 naverLink 우선 사용
                 val naverLink = news.naverLink
                 val isNaverHosted = naverLink.contains(".naver.com") &&
                         !naverLink.contains("search.naver.com") &&
                         !naverLink.contains("news.naver.com/main") &&
                         !naverLink.contains("news.naver.com/section")
-                val targetUrl = if (isNaverHosted) {
-                    Log.d(TAG, "결정된 타겟: 네이버 호스팅 기사 (${naverLink})")
-                    naverLink
-                } else {
-                    Log.d(TAG, "결정된 타겟: 언론사 원문 주소 (${news.link})")
-                    news.link
+                val primaryUrl  = if (isNaverHosted) naverLink else news.link
+                val fallbackUrl = if (isNaverHosted) news.link  else null
+
+                var targetUrl = primaryUrl
+                var doc = detailParser.loadArticleDocument(primaryUrl)
+
+                if (doc == null && !fallbackUrl.isNullOrEmpty() && fallbackUrl != primaryUrl) {
+                    Log.w(TAG, "1차 URL 로드 실패, fallback 시도: $fallbackUrl")
+                    doc = detailParser.loadArticleDocument(fallbackUrl)
+                    if (doc != null) targetUrl = fallbackUrl
                 }
 
-                // ★ Accept-Encoding을 명시하지 않아 Jsoup 기본값(압축 없음) 사용
-                //   → GZIPInputStream + SSL 복호화 충돌(BAD_DECRYPT) 방지
-                // ★ Connection: close → keep-alive 문제로 연결이 끊기는 사이트 대응
-                val jsoupConn = org.jsoup.Jsoup.connect(targetUrl)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
-                    .header("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7")
-                    .header("Connection", "close")   // ★ keep-alive EOF 방지
-                    .referrer("https://search.naver.com/search.naver")
-                    .followRedirects(true)
-                    .ignoreHttpErrors(true)           // ★ HTTP 오류 코드 무시
-                    .ignoreContentType(true)          // ★ Content-Type 무시
-                    .maxBodySize(0)                   // ★ 응답 크기 제한 해제
-                    .timeout(15000)
-
-                // ★ SSL BAD_DECRYPT 발생 사이트 → TLSv1.2 강제 + 압축 완전 비활성화
-                //   Android 내장 com.android.okhttp 가 TLS 1.3 AEAD cipher 와
-                //   충돌할 때 발생. SSLContext("TLSv1.2")로 협상 범위를 제한해 해결.
-                val SSL_PROBLEM_SITES = listOf("pinpointnews.co.kr")
-                if (SSL_PROBLEM_SITES.any { targetUrl.contains(it) }) {
-                    Log.d(TAG, "SSL 호환 모드 적용: $targetUrl")
-                    jsoupConn
-                        .header("Accept-Encoding", "identity")   // 압축 완전 비활성화
-                        .sslSocketFactory(createCompatibleSslSocketFactory())
+                if (doc == null) {
+                    withContext(Dispatchers.Main) { showError("문서를 불러올 수 없습니다.") }
+                    return@launch
                 }
 
-                val doc = jsoupConn.get()
+                // ── doc에서 언론사명 추출 후 Firebase 저장 ─────────────────────
+                runCatching {
+                    val domain = URL(news.link).host.removePrefix("www.")
+                    val alreadyKnown = dynamicPressMap.containsKey(domain) ||
+                            PRESS_DOMAIN_MAP.entries.any { (d, _) -> news.link.contains(d) }
+                    if (!alreadyKnown && domain.isNotBlank()) {
+                        // 1순위: og:site_name 메타태그 (가장 정확)
+                        val ogSiteName = doc.selectFirst("meta[property=og:site_name]")
+                            ?.attr("content")?.trim()
+                            ?.takeIf { it.length in 2..20 }
 
-                // [검증 2] HTML 문서가 정상적으로 로드되었는지 확인
-                Log.d(TAG, "문서 로드 완료. Title: ${doc.title()}")
+                        // 2순위: doc.title() 마지막 구분자 뒤 텍스트
+                        val docTitle = doc.title().trim()
+                        val pressFromTitle = docTitle
+                            .split(Regex("""\s*[-|<>–—]\s*"""))
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() && it.length in 2..20 }
+                            .lastOrNull()
 
-                // [검증 3] 본문 영역 탐색 (네이버 전용 → 언론사 전용 → 범용 순)
-                val bodyEl = selectArticleBody(doc, targetUrl)
+                        // 3순위: 본문에서 [언론사=기자] 패턴 탐색
+                        // 예: "[소셜밸류=소민영 기자]" → "소셜밸류"
+                        // ^ 없이 전체 텍스트에서 첫 번째 매칭을 찾음
+                        val pressFromBody = doc.body()?.text()?.let { bodyText ->
+                            Regex("""\[([가-힣a-zA-Z0-9]{2,15})[=\s][가-힣a-zA-Z0-9\s]{2,10}기자""")
+                                .find(bodyText)
+                                ?.groupValues?.get(1)
+                                ?.takeIf { it.length in 2..15 }
+                        }
 
-                // 공통 노이즈 요소 제거 (selectArticleBody 내에서도 처리되나 이중 보호)
-                bodyEl?.select("script, style, header, footer, .menu, .button, .ad")?.remove()
+                        val pressName = ogSiteName ?: pressFromTitle ?: pressFromBody
 
-                // [MTN 전용] 동영상 기사 감지 → 영상 안내 메시지 + 텍스트 추출
-                val isMtnVideoArticle = targetUrl.contains("mtn.co.kr") &&
-                        (doc.selectFirst("video, iframe[src*='youtube'], iframe[src*='mtn'], .vod_wrap, #vod_area, .video_area") != null
-                                || doc.title().contains("동영상") || doc.title().contains("VOD"))
+                        Log.d(TAG_FB, "[언론사 추출] domain=$domain")
+                        Log.d(TAG_FB, "[언론사 추출] og:site_name=$ogSiteName")
+                        Log.d(TAG_FB, "[언론사 추출] pressFromBody=$pressFromBody")
+                        Log.d(TAG_FB, "[언론사 추출] docTitle=$docTitle")
+                        Log.d(TAG_FB, "[언론사 추출] 최종 후보=$pressName")
 
-                val blocks: List<ContentBlock>
-                if (isMtnVideoArticle) {
+                        if (pressName != null && pressName.length >= 2) {
+                            saveNewPressToFirebase(domain, pressName)
+                        } else {
+                            Log.w(TAG_FB, "[언론사 추출] 추출 실패 — 후보 없음 (domain=$domain)")
+                        }
+                    } else {
+                        Log.d(TAG_FB, "[언론사 추출] 스킵 — 이미 등록된 도메인: $domain")
+                    }
+                }.onFailure { e ->
+                    Log.e(TAG_FB, "[언론사 추출] 오류: ${e.message}")
+                }
+                // ──────────────────────────────────────────────────────────────
+
+                val bodyEl = detailParser.selectArticleBody(doc, targetUrl) ?: run {
+                    withContext(Dispatchers.Main) { showError("본문 영역을 찾을 수 없습니다.") }
+                    return@launch
+                }
+
+                val isMtnVideoArticle = detailParser.isMtnVideoArticle(doc, targetUrl)
+
+                val blocks: List<ContentBlock> = if (isMtnVideoArticle) {
                     Log.d(TAG, "MTN 동영상 기사 감지 → 텍스트 추출 모드")
                     val videoBlocks = mutableListOf<ContentBlock>()
-                    // 영상 안내 메시지
                     videoBlocks.add(ContentBlock.Text("📺 이 기사는 동영상 콘텐츠입니다.\n앱에서 직접 재생할 수 없습니다. 원문 링크를 통해 시청해 주세요."))
-                    // 기사 내 텍스트(자막·설명)가 있으면 함께 표시
-                    val textBody = bodyEl?.let { extractContentBlocks(it) }
-                        ?.filterIsInstance<ContentBlock.Text>()
-                        ?.filter { it.content.length > 30 }
-                        ?: emptyList()
+                    val textBody = detailParser.extractContentBlocks(bodyEl)
+                        .filterIsInstance<ContentBlock.Text>()
+                        .filter { it.content.length > 30 }
                     videoBlocks.addAll(textBody)
-                    blocks = videoBlocks
+                    videoBlocks
                 } else {
-                    blocks = extractContentBlocks(bodyEl!!)
-                } // end MTN video check
+                    detailParser.extractContentBlocks(bodyEl)
+                }
 
                 val fullTitle = run {
                     val raw = doc.title().trim()
                     val parts = raw.split(Regex(""" [|<>\-–—:]{1,2} """))
-                    val best  = parts.maxByOrNull { it.trim().length }?.trim() ?: raw
+                    val best = parts.maxByOrNull { it.trim().length }?.trim() ?: raw
                     if (best.length >= 10) best else news.title
                 }
 
@@ -609,8 +981,7 @@ class NewsDelegate(
                 }
 
             } catch (e: Exception) {
-                // [검증 4] 에러 발생 시 로그
-                Log.e(TAG, "상세 보기 로딩 중 치명적 에러: ${e.message}", e)
+                Log.e(TAG, "상세 보기 로딩 중 에러: ${e.message}", e)
                 showError("기사를 불러오는 중 오류가 발생했습니다: ${e.localizedMessage}")
             }
         }
@@ -636,7 +1007,7 @@ class NewsDelegate(
             }
         }
         val layout = LinearLayout(activity).apply {
-            orientation  = LinearLayout.VERTICAL
+            orientation = LinearLayout.VERTICAL
             setPadding(8.dp(), 8.dp(), 8.dp(), 16.dp())
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -653,7 +1024,7 @@ class NewsDelegate(
             ellipsize = null
         })
 
-        val pressName   = news.link.extractPressName()
+        val pressName = news.link.extractPressName(news.title, news.description)
         val displayDate = news.pubDateRaw.toDisplayDate()
         layout.addView(TextView(activity).apply {
             text = "$displayDate  $pressName"
@@ -673,7 +1044,7 @@ class NewsDelegate(
                 is ContentBlock.Text -> {
                     if (block.content.isNotBlank()) {
                         layout.addView(TextView(activity).apply {
-                            text     = block.content
+                            text = block.content
                             textSize = 15f
                             setLineSpacing(0f, 1.3f)
                             setPadding(0, 0, 0, 3.dp())
@@ -687,7 +1058,7 @@ class NewsDelegate(
                             LinearLayout.LayoutParams.WRAP_CONTENT
                         ).also { it.setMargins(0, 8.dp(), 0, 4.dp()) }
                         adjustViewBounds = true
-                        scaleType        = ImageView.ScaleType.FIT_CENTER
+                        scaleType = ImageView.ScaleType.FIT_CENTER
                     }
                     layout.addView(imageView)
 
@@ -702,23 +1073,11 @@ class NewsDelegate(
                     } else null
 
                     CoroutineScope(Dispatchers.IO).launch {
-                        runCatching {
-                            val imgConn = (URL(block.url).openConnection() as java.net.HttpURLConnection).apply {
-                                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36")
-                                setRequestProperty("Referer",    "https://news.naver.com")
-                                connectTimeout = 8_000
-                                readTimeout    = 8_000
-                            }
-                            val bitmap = BitmapFactory.decodeStream(imgConn.inputStream)
-                            withContext(Dispatchers.Main) {
-                                if (bitmap != null) imageView.setImageBitmap(bitmap)
-                                else {
-                                    layout.removeView(imageView)
-                                    captionView?.let { layout.removeView(it) }
-                                }
-                            }
-                        }.onFailure {
-                            withContext(Dispatchers.Main) {
+                        val bitmap = NewsDetailParser.loadImageBitmap(block.url)
+                        withContext(Dispatchers.Main) {
+                            if (bitmap != null) {
+                                imageView.setImageBitmap(bitmap)
+                            } else {
                                 layout.removeView(imageView)
                                 captionView?.let { layout.removeView(it) }
                             }
@@ -728,540 +1087,95 @@ class NewsDelegate(
             }
         }
 
-        scrollView.addView(layout)
-        contentLayout.addView(scrollView)
-    }
+        // ── 기사 하단 네비게이션 힌트 바 ──────────────────────────────────────
+        // 이전/다음 기사가 있을 때만 해당 방향 버튼을 활성화합니다.
+        val list = currentActiveList
+        val hasPrev = currentDetailIndex > 0
+        val hasNext = currentDetailIndex < list.size - 1
 
-    // ── SSL 호환 소켓 팩토리 ─────────────────────────────────────────────────
-    /**
-     * Android 내장 com.android.okhttp 가 TLS 1.3 AEAD cipher 와 충돌(BAD_DECRYPT)하는
-     * 사이트를 위해 TLSv1.2 범위로 협상을 제한한 SSLSocketFactory 를 반환합니다.
-     * 인증서 검증은 기존 시스템 TrustManager 를 그대로 사용합니다.
-     */
-    private fun createCompatibleSslSocketFactory(): javax.net.ssl.SSLSocketFactory {
-        return try {
-            val sc = javax.net.ssl.SSLContext.getInstance("TLSv1.2")
-            sc.init(null, null, java.security.SecureRandom())
-            sc.socketFactory
-        } catch (e: Exception) {
-            Log.w(TAG, "TLSv1.2 SSLContext 생성 실패, 기본값 사용: ${e.message}")
-            javax.net.ssl.SSLContext.getDefault().socketFactory
-        }
-    }
-
-    // ── 본문 영역 선택 헬퍼 ──────────────────────────────────────────────────
-
-    /**
-     * 우선순위: 네이버 전용 → 언론사 전용 → 범용 HTML5 → body 전체(최후)
-     *
-     * 딜사이트: .content-area 가 여러 개(.rnmc-right1, .rnmc-right2)로 분할되어 있으므로
-     *   모두 병합한 임시 Element를 반환합니다.
-     * MTN: #article_body 또는 .article_body
-     * 기타 언론사: <article>, [itemprop=articleBody], 공통 클래스명 순으로 탐색합니다.
-     */
-    private fun selectArticleBody(
-        doc: org.jsoup.nodes.Document,
-        url: String
-    ): Element {
-        // ── 1. 네이버 전용 (뉴스·스포츠·연예 등 모든 섹션) ────────────────────
-        doc.selectFirst("#dic_area")?.let {
-            Log.d(TAG, "본문 감지: #dic_area (최신 네이버 뉴스)"); return it
-        }
-        doc.selectFirst("#articleBodyContents")?.let {
-            Log.d(TAG, "본문 감지: #articleBodyContents (구형 네이버 뉴스)"); return it
-        }
-        doc.selectFirst("#newsct_article")?.let {
-            Log.d(TAG, "본문 감지: #newsct_article (모바일 네이버 뉴스)"); return it
-        }
-        doc.selectFirst(".news_end_content")?.let {
-            Log.d(TAG, "본문 감지: .news_end_content (네이버 스포츠)"); return it
-        }
-        doc.selectFirst("#newsEndContents")?.let {
-            Log.d(TAG, "본문 감지: #newsEndContents (네이버 스포츠 구형)"); return it
-        }
-        doc.selectFirst(".ArticleContent")?.let {
-            Log.d(TAG, "본문 감지: .ArticleContent (네이버 스포츠)"); return it
-        }
-        doc.selectFirst("#articeBody")?.let {
-            Log.d(TAG, "본문 감지: #articeBody (네이버 연예)"); return it
+        val navBar = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.setMargins(0, 8.dp(), 0, 8.dp()) }
         }
 
-        // ── 2. 언론사별 전용 셀렉터 ──────────────────────────────────────────
-        when {
-            // ─ 쿠키뉴스 (kukinews.com)
-            // 구조: #article(itemprop=articleBody) > #articleContent(실제 본문)
-            //        + .view-footer(Copyright) + .articleToolBox(폰트크기 UI) + ...
-            // [itemprop=articleBody] 범용 셀렉터가 #article 전체를 잡으면
-            // Copyright·폰트크기 UI가 통째로 딸려오므로 #articleContent만 반환
-            url.contains("kukinews.com") -> {
-                Log.d(TAG, "본문 감지: 쿠키뉴스 #articleContent")
-                doc.selectFirst("#articleContent")?.let { return it }
-                // fallback: #article 잡은 뒤 노이즈 형제 제거
-                doc.selectFirst("#article")?.let { el ->
-                    val clone = el.clone()
-                    clone.select(".view-footer, .articleToolBox, .contentReporterInfo, " +
-                            ".reporterInfo, .articleRating, script, style").remove()
-                    return clone
-                }
+        // ← 이전 기사 버튼
+        navBar.addView(TextView(activity).apply {
+            text = "← 이전 기사"
+            textSize = 13f
+            gravity = android.view.Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, 44.dp(), 1f)
+            setTextColor(if (hasPrev) android.graphics.Color.parseColor("#1976D2")
+            else        android.graphics.Color.parseColor("#BDBDBD"))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if (hasPrev) android.graphics.Color.parseColor("#E3F2FD")
+                else        android.graphics.Color.parseColor("#F5F5F5"))
+                cornerRadius = 8 * activity.resources.displayMetrics.density
+                setStroke(1, if (hasPrev) android.graphics.Color.parseColor("#90CAF9")
+                else        android.graphics.Color.parseColor("#E0E0E0"))
             }
-
-            // ─ Newsdak CMS 계열 (뉴스프리존, 시사저널e, 디지털투데이, 잡포스트 등)
-            // 공통 id: #article-view-content-div  /  공통 속성: itemprop=articleBody
-            url.contains("newsfreezone.co.kr")
-                    || url.contains("sisajournal-e.com")
-                    || url.contains("sisajournal.com")
-                    || url.contains("digitaltoday.co.kr")
-                    || url.contains("job-post.co.kr")
-                    || url.contains("etoday.co.kr")
-                    || url.contains("fnnews.com")
-                    || url.contains("newspim.com")
-                    || url.contains("inews24.com")
-                    || url.contains("bizwatch.co.kr") -> {
-                Log.d(TAG, "본문 감지: Newsdak CMS 계열 #article-view-content-div")
-                (doc.selectFirst("#article-view-content-div")
-                    ?: doc.selectFirst("[itemprop=articleBody]"))
-                    ?.let { return it }
-            }
-
-            // ─ 더벨 (thebell.co.kr)
-            // 구조: .viewBox > .viewHead + #article_main(.viewSection) + .reference + .linkBox + .newsADBox + .linkNews
-            // #article_main 만 선택하면 형제 노이즈는 포함 안 됨 → 직접 반환
-            url.contains("thebell.co.kr") -> {
-                Log.d(TAG, "본문 감지: 더벨")
-                // .viewBox 전체 클론 후 불필요 형제 제거 → #article_main 텍스트 온전히 유지
-                val viewBox = doc.selectFirst(".viewBox")
-                if (viewBox != null) {
-                    val clone = viewBox.clone()
-                    clone.select(".viewHead, .reference, .linkBox, .newsADBox, .linkNews, " +
-                            ".article_content_banner, .article_title_banner, script, style").remove()
-                    return clone
-                }
-                // fallback
-                doc.selectFirst("#article_main")?.let { return it }
-                doc.selectFirst(".viewSection")?.let { return it }
-            }
-
-            // ─ 광주일보 (kjdaily.com)
-            // 구형 HTML: <div id=content> (Jsoup은 id="content" 로 파싱)
-            url.contains("kjdaily.com") -> {
-                Log.d(TAG, "본문 감지: 광주일보")
-                val el = doc.selectFirst("#content") ?: doc.selectFirst(".cont_left")
-                if (el != null) {
-                    // 형제 사이드바 노이즈 제거
-                    el.select(".box_timenews, .new_news_list, .section_top_view, " +
-                            ".floating, [class*='ad'], [id*='ad']").remove()
-                    return el
-                }
-            }
-
-            // ─ 대한경제 (dnews.co.kr)
-            // 구조: .view_contents.innerNews > .newsCont > div.text (실제 본문)
-            //       .newsCont 하위에 .dateFont(날짜/SNS), .journalist_view_more(기자정보),
-            //       .journalist_name 등 노이즈 존재 → div.text 만 직접 반환
-            url.contains("dnews.co.kr") -> {
-                Log.d(TAG, "본문 감지: 대한경제 div.text")
-                val el = doc.selectFirst("div.text")
-                    ?: doc.selectFirst(".newsCont")
-                if (el != null) {
-                    el.select(
-                        ".dateFont, .btnSocial, .btnFont, .btnPrint, .journalist_view_more, " +
-                                ".journalist_img, .journalist_name, .journalist_email, .journalist_link, " +
-                                ".journalist_position, .sub_title, script, style"
-                    ).remove()
-                    return el
-                }
-            }
-
-            // ─ 서울경제TV (sentv.co.kr)
-            // 구조: /article/view/sentv... URL 패턴
-            //   section_1 : 제목·날짜·공유버튼 (노이즈)
-            //   section_2 .inner :
-            //     .s-tit      : 부제목 (노이즈)
-            //     #newsView   : ★ 실제 기사 본문 (edit-txt)
-            //     .reporter_wrap : 기자 프로필 (노이즈)
-            //     .copy-noti  : 저작권 고지 (노이즈)
-            //   section_3   : 관련뉴스 (노이즈)
-            url.contains("sentv.co.kr") -> {
-                Log.d(TAG, "본문 감지: 서울경제TV #newsView")
-                val el = doc.selectFirst("#newsView")
-                    ?: doc.selectFirst(".edit-txt")
-                    ?: doc.selectFirst(".view_txt")
-                    ?: doc.selectFirst(".article_txt")
-                    ?: doc.selectFirst(".article_body")
-                    ?: doc.selectFirst(".view_content")
-                if (el != null) {
-                    el.select(
-                        ".reporter_wrap, .reporter_info, .rel_news, .related_news, " +
-                                ".section_3, .bt-area, .s-tit, .copy-noti, " +
-                                ".view_sns, .view_util, .ad_box, [class*='ad_'], " +
-                                "script, style"
-                    ).remove()
-                    return el
-                }
-            }
-
-            // ─ 전남매일 (jndn.com)
-            // 구조: .cont_left > div#content(실제 기사 본문) + .article_footer + .box_timenews + .article_hot
-            //       .cont_right(사이드바) - 형제 요소이므로 #content만 선택 후 노이즈 제거
-            url.contains("jndn.com") -> {
-                Log.d(TAG, "본문 감지: 전남매일 #content")
-                val el = doc.selectFirst("#content")
-                    ?: doc.selectFirst(".cont_left")
-                if (el != null) {
-                    el.select(
-                        ".article_footer, .box_timenews, .new_news_list, .new_news_list_ttl, " +
-                                ".article_hot, .cont_right, .floating, .paging_news, " +
-                                "[class*='ad'], [id*='ad'], script, style"
-                    ).remove()
-                    return el
-                }
-            }
-
-            // ─ 광주매일신문 (gjdaily.com / 기존 kjdaily와 다른 사이트)
-            // Newdak CMS 또는 자체 CMS 사용. 주요 셀렉터 우선순위 시도
-            url.contains("gjdaily.com") -> {
-                Log.d(TAG, "본문 감지: 광주매일신문")
-                (doc.selectFirst("#article-view-content-div")
-                    ?: doc.selectFirst("[itemprop=articleBody]")
-                    ?: doc.selectFirst(".article-view-content")
-                    ?: doc.selectFirst(".article_view_content")
-                    ?: doc.selectFirst("#articleViewCon")
-                    ?: doc.selectFirst(".article-body")
-                    ?: doc.selectFirst("#view_content")
-                    ?: doc.selectFirst(".view_content"))
-                    ?.let { return it }
-            }
-
-            // ─ 에너지뉴스 (energynews.co.kr) 및 기타 에너지/전력/산업 전문지
-            // energynews.co.kr = Newdak CMS (#article-view-content-div 사용 가능성 높음)
-            url.contains("energynews.co.kr")
-                    || url.contains("enewstoday.co.kr")
-                    || url.contains("electimes.com")
-                    || url.contains("e2news.com")
-                    || url.contains("industrynews.co.kr")
-                    || url.contains("energy-news.co.kr")
-                    || url.contains("energy.co.kr") -> {
-                Log.d(TAG, "본문 감지: 에너지/전력 전문지")
-                (doc.selectFirst("#article-view-content-div")
-                    ?: doc.selectFirst("[itemprop=articleBody]")
-                    ?: doc.selectFirst(".article-view-content")
-                    ?: doc.selectFirst(".article_body")
-                    ?: doc.selectFirst(".article-body")
-                    ?: doc.selectFirst("#article_body")
-                    ?: doc.selectFirst(".news_content")
-                    ?: doc.selectFirst("#news_content"))
-                    ?.let { return it }
-            }
-            // ─ 뉴스투데이 (news2day.co.kr)
-            // 구조: .view_con > .view_con_wrap x2 (첫째 빈 div, 둘째에 본문 HTML 내장)
-            url.contains("news2day.co.kr") -> {
-                Log.d(TAG, "본문 감지: 뉴스투데이 .view_con_wrap")
-                val wraps = doc.select(".view_con_wrap")
-                (wraps.firstOrNull { it.text().length > 50 }
-                    ?: doc.selectFirst(".view_con"))
-                    ?.let { return it }
-            }
-
-            url.contains("dealsite.co.kr") || url.contains("paxnetnews.com") -> {
-                Log.d(TAG, "본문 감지: 딜사이트 .content-area 병합")
-                val contentAreas = doc.select(".content-area")
-                if (contentAreas.isNotEmpty()) {
-                    // .rnmc-left / 관련기사 / 광고 div 제거 후 병합
-                    val merged = org.jsoup.nodes.Element("div")
-                    contentAreas.forEach { area ->
-                        val clone = area.clone()
-                        clone.select(
-                            ".rnmc-left, .rnmc-relative-news, .rec-keywords, " +
-                                    ".prime-msg, [id*='dablewidget'], script, style"
-                        ).remove()
-                        merged.appendChild(clone)
-                    }
-                    return merged
-                }
-            }
-
-            // ─ 광주MBC (kjmbc.co.kr)
-            // 구조: .news-article > header(제목·기자) + .news-article-body(★ 실제 본문)
-            //   .news-article-body 내 노이즈:
-            //     .daum-banner  : 다음 채널 배너
-            //     .tag          : Copyright 고지 + 공유·인쇄 버튼
-            //     .profile      : 기자 프로필
-            //     .news-comment : 댓글 영역
-            //   aside.news-aside : 많이 본 뉴스 / 최신뉴스 사이드바 (형제 요소)
-            url.contains("kjmbc.co.kr") -> {
-                Log.d(TAG, "본문 감지: 광주MBC .news-article-body")
-                val el = doc.selectFirst(".news-article-body")
-                    ?: doc.selectFirst(".news-article")
-                if (el != null) {
-                    el.select(
-                        ".daum-banner, .tag, .profile, .news-comment, " +
-                                ".pageFunction, aside, .news-aside, " +
-                                "script, style"
-                    ).remove()
-                    return el
-                }
-            }
-
-            // MTN (mtn.co.kr) - 동영상 기사는 호출 전에 분기, 여기서는 텍스트 추출용
-            url.contains("mtn.co.kr") -> {
-                Log.d(TAG, "본문 감지: MTN 전용")
-                (doc.selectFirst("#articlebody")
-                    ?: doc.selectFirst(".articlebody")
-                    ?: doc.selectFirst("#article_body")
-                    ?: doc.selectFirst(".article_body")
-                    ?: doc.selectFirst(".article-body")
-                    ?: doc.selectFirst(".news_text")
-                    ?: doc.selectFirst(".view_text"))
-                    ?.let { return it }
-            }
-
-            // 이데일리
-            url.contains("edaily.co.kr") -> {
-                doc.selectFirst(".news_body")?.let { Log.d(TAG, "이데일리 .news_body"); return it }
-            }
-
-            // 머니투데이
-            url.contains("mt.co.kr") -> {
-                doc.selectFirst(".newsView")?.let { Log.d(TAG, "머니투데이 .newsView"); return it }
-            }
-
-            // 비즈워치
-            url.contains("bizwatch.co.kr") -> {
-                doc.selectFirst(".article-content")?.let { Log.d(TAG, "비즈워치 .article-content"); return it }
-            }
-
-            // 메트로서울 (metroseoul.co.kr)
-            url.contains("metroseoul.co.kr") -> {
-                Log.d(TAG, "본문 감지: 메트로서울")
-                val container = doc.selectFirst("[data-layout-area=ARTICLE_CONTENT]")
-                    ?: doc.selectFirst(".article-txt-contents")
-                if (container != null) {
-                    val clone = container.clone()
-                    clone.select(
-                        ".relation_keyword, .under-byline, .reporter_underLine," +
-                                ".reporter_area, .under-sns-area, .article-copyright," +
-                                ".sub_news_title, .sns-share-layer, .sns-txtsize-layer," +
-                                "script, style, ins"
-                    ).remove()
-                    return clone
-                }
-            }
-
-            // 연합뉴스
-            url.contains("yna.co.kr") -> {
-                doc.selectFirst(".article-txt")?.let { Log.d(TAG, "연합뉴스 .article-txt"); return it }
-            }
-        }
-
-        // ── 3. 범용 셀렉터 (우선순위 순) ────────────────────────────────────
-        val genericSelectors = listOf(
-            "article[itemprop=articleBody]", "[itemprop=articleBody]",
-            "#article-view-content-div",
-            "article.article-veiw-body", "article.article-view-body",
-            "#articleBody", "#article_body", "#articeBody",
-            ".article-body", ".article_body", ".articleBody",
-            ".article-content", ".article_content", ".articleContent",
-            ".article-view-content", ".article_view_content",
-            ".news-body", ".news_body", ".newsBody",
-            ".news-content", ".news_content",
-            ".view_content", ".view-content",
-            ".cont_article", ".article-text", ".article_text",
-            ".news_view", ".news-view",
-            ".read_body", ".news_view_content",
-            ".entry-content", ".post-content",
-            "article"
-        )
-        for (sel in genericSelectors) {
-            doc.selectFirst(sel)?.let {
-                Log.d(TAG, "본문 감지 (범용): $sel")
-                return it
-            }
-        }
-
-        Log.e(TAG, "본문 감지 실패: 표준 태그 없음. 전체 Body 사용 시도.")
-        return doc.body()
-    }
-
-    // ── 본문 파싱 ────────────────────────────────────────────────────────────
-
-    private fun extractContentBlocks(element: Element): List<ContentBlock> {
-        val blocks     = mutableListOf<ContentBlock>()
-
-        val noiseSelectors = listOf(
-            // 공통 구조 태그
-            "header", "footer", "nav", "aside", "script", "style", "iframe", "noscript",
-            // 사이드바 / 메뉴
-            ".sidebar", ".menu", ".gnb", ".lnb", ".snb",
-            ".top_menu", ".bottom_info", ".footer_info",
-            ".header-sitemap-wrap", ".header-search-more-wrap",
-            ".header-bottom", ".nav-thispage",
-            // SNS / 공유
-            ".sns", ".share", ".article_social", ".social_group", ".utility",
-            ".share-btns-wrap", ".share-btns-wrap-top",
-            ".news-info-and-share", ".news-info-top-3news-wrap",
-            ".btn-facebook1", ".btn-twitter1", ".btn-share1",
-            // 광고 / 배너
-            ".ads", ".banner", ".ad_area", ".ad_wrap", ".ad_container",
-            ".ad-article-top", "[class*='ad-']", "[id*='ad_']", "[id*='dablewidget']",
-            "[class*='swiper']", ".bkn-list",
-            // 댓글 / 저작권 / 기자
-            ".reply", ".comment", ".article_bottom", ".copyright", ".byline", ".reporter",
-            ".nis-reporter-name",
-            // 저작권 고지 · 기자정보 (시민의소리 등 Newdak/자체CMS 계열)
-            // 구조 예: <div class="view-copyright">저작권자 © ...</div>
-            //          <div class="view-editors">기자 프로필 · 다른기사 보기</div>
-            ".view-copyright", ".view-editors",
-            // 유사 패턴 (타 언론사 동일 계열)
-            ".article-copyright", ".news-copyright", ".news_copyright",
-            ".view-reporter", ".view_reporter", ".reporter-info", ".reporter_info",
-            // 태그 / 추천 뉴스
-            ".article_tags", ".recommend_news", ".popular_news",
-            ".rec-keywords", ".related-news", ".rnmc-relative-news",
-            ".relative-news-title-wrap",
-            // 딜사이트 전용
-            ".rnmc-left", ".prime-msg", ".read-news-row1",
-            ".empty-rnmc", ".foot_notice",
-            // 기타 로고
-            "#dealsite_ci", ".dealsite_ci", ".top_logo",
-            // 대한경제(dnews.co.kr) 전용: 기자정보·날짜·SNS 영역
-            ".journalist_view_more", ".dateFont", ".btnSocial", ".btnPrint",
-            // 광주MBC(kjmbc.co.kr) 전용: 다음배너·저작권·기자프로필·댓글·사이드바
-            ".daum-banner", ".news-comment", ".news-aside",
-            // 서울경제TV(sentv.co.kr) 전용: 기자 프로필·관련기사·저작권·공유버튼·부제목
-            ".reporter_wrap", ".reporter_info", ".rel_news", ".view_sns", ".view_util",
-            ".copy-noti", ".s-tit", ".section_3", ".bt-area",
-            // 광주일보(kjdaily) 및 전남매일(jndn) 공통: 오른쪽 사이드바·최신뉴스 박스
-            ".cont_right", ".box_timenews", ".new_news_list", ".new_news_list_ttl",
-            ".section_top_view", ".floating",
-            // 전남매일(jndn.com) 전용: 기사하단 네비·인기기사
-            ".article_footer", ".article_hot", ".paging_news",
-            // 뉴스투데이(news2day) 전용: 관련기사·광고
-            ".related_news", ".article_foot", ".art_etc",
-            "[class*='adsbyaiinad']", "[class*='adsbygoogle']"
-        )
-        noiseSelectors.forEach { element.select(it).remove() }
-
-        val textBuffer = StringBuilder()
-
-        fun flushText() {
-            val cleaned = textBuffer.toString()
-                .replace('\u00A0', ' ')          // &nbsp; → 공백
-                .replace(Regex("[ \t]+"), " ")
-                .replace(Regex(" ?\n ?"), "\n")
-                .replace(Regex("\n{3,}"), "\n\n")
-                .lines().joinToString("\n") { it.trim() }
-                .trim()
-            // 텍스트 내용 기반 필터링 (메뉴성 단어가 포함된 짧은 문구 삭제)
-            if (cleaned.isNotEmpty()) {
-                val isMenuText = cleaned.length < 60 &&
-                        cleaned.contains(Regex(
-                            "페이스북|트위터|카카오톡|로그인|회원가입|섹션|뉴스랭킹|포럼|전체메뉴" +
-                                    "|오피니언|URL복사|스크랩|키워드알림|구독한|인쇄|글자크기" +
-                                    "|이 기사는.+유료콘텐츠|딜사이트 플러스|ⓒ|Copyright"
-                        ))
-                if (!isMenuText) {
-                    blocks.add(ContentBlock.Text(cleaned))
-                }
-            }
-            textBuffer.clear()
-        }
-
-        val blockTags = setOf("p", "h1", "h2", "h3", "h4", "h5", "h6",
-            "li", "blockquote", "figcaption")
-
-        element.traverse(object : NodeVisitor {
-            override fun head(node: org.jsoup.nodes.Node, depth: Int) {
-                when {
-                    node is TextNode -> {
-                        val t = node.text()
-                        if (t.isNotBlank()) {
-                            if (textBuffer.isNotEmpty() && !textBuffer.last().isWhitespace())
-                                textBuffer.append(' ')
-                            textBuffer.append(t.trim())
-                        }
-                    }
-                    node is Element -> when (node.tagName()) {
-                        "br"  -> textBuffer.append('\n')
-                        "img" -> {
-                            val src = node.absUrl("src").ifEmpty { node.attr("src") }
-                            if (src.startsWith("http") && !isAdImage(src, node)) {
-                                flushText()
-                                blocks.add(ContentBlock.Image(src, node.attr("alt").trim()))
-                            }
-                        }
-                        in blockTags -> {
-                            if (textBuffer.isNotEmpty() && !textBuffer.endsWith("\n\n"))
-                                textBuffer.append("\n\n")
-                        }
-                    }
-                }
-            }
-
-            override fun tail(node: org.jsoup.nodes.Node, depth: Int) {
-                if (node is Element && node.tagName() in blockTags) {
-                    if (!textBuffer.endsWith("\n\n")) textBuffer.append("\n\n")
-                }
-            }
+            if (hasPrev) setOnClickListener { navigateArticle(-1) }
         })
 
-        flushText()
+        // 가운데 구분 여백
+        navBar.addView(View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(8.dp(), LinearLayout.LayoutParams.MATCH_PARENT)
+        })
 
-        // 추출된 텍스트 중 노이즈 문구 추가 필터링
-        val filteredBlocks = blocks.filter { block ->
-            if (block is ContentBlock.Text) {
-                val content = block.content.trim()
-                // 10자 미만 + 메뉴성 단어 → 제거
-                val isTooShortMenu = content.length <= 10 &&
-                        content.contains(Regex("로그인|회원가입|뉴스랭킹|오피니언|전체메뉴|인쇄|공유"))
-                // "ⓒ 저작권" / "무단전재" 등 저작권 고지 한 줄 → 제거
-                val isCopyright = content.contains(Regex("ⓒ|무단전재|재배포.?금지|All Rights Reserved"))
-                        && content.length < 120
-                // 기자 이름만 있는 짧은 줄 (예: "최유라 기자") → 제거
-                val isBylineOnly = content.matches(Regex("""^[가-힣]{2,5}\s*기자$"""))
-                !isTooShortMenu && !isCopyright && !isBylineOnly
-            } else true
-        }
+        // 다음 기사 → 버튼
+        navBar.addView(TextView(activity).apply {
+            text = "다음 기사 →"
+            textSize = 13f
+            gravity = android.view.Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, 44.dp(), 1f)
+            setTextColor(if (hasNext) android.graphics.Color.parseColor("#1976D2")
+            else        android.graphics.Color.parseColor("#BDBDBD"))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if (hasNext) android.graphics.Color.parseColor("#E3F2FD")
+                else        android.graphics.Color.parseColor("#F5F5F5"))
+                cornerRadius = 8 * activity.resources.displayMetrics.density
+                setStroke(1, if (hasNext) android.graphics.Color.parseColor("#90CAF9")
+                else        android.graphics.Color.parseColor("#E0E0E0"))
+            }
+            if (hasNext) setOnClickListener { navigateArticle(1) }
+        })
 
-        return filteredBlocks
-    }
+        layout.addView(navBar)
 
-    // ── 광고 이미지 판별 ─────────────────────────────────────────────────────
+        // 하단 여백
+        layout.addView(View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 24.dp()
+            )
+        })
 
-    private fun isAdImage(src: String, img: Element): Boolean {
-        val adPatterns = listOf(
-            "doubleclick", "googlesyndication", "adnxs", "moatads",
-            "adsystem", "adservice", "google-analytics", "googletagmanager",
-            "facebook.com/tr", "naver.com/ad", "nbad.naver",
-            "beacon", "tracker", "1x1", "pixel.gif", "pixel.png"
-        )
-        if (adPatterns.any { src.contains(it, ignoreCase = true) }) return true
-        val w = img.attr("width").toIntOrNull()  ?: 0
-        val h = img.attr("height").toIntOrNull() ?: 0
-        if ((w in 1..30) || (h in 1..30)) return true
-        return false
+        scrollView.addView(layout)
+        contentLayout.addView(scrollView)
     }
 
     // ── UI 헬퍼 ──────────────────────────────────────────────────────────────
 
     private fun buildLoadingLayout(message: String): LinearLayout =
         LinearLayout(activity).apply {
-            orientation  = LinearLayout.VERTICAL
-            gravity      = Gravity.CENTER
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 400)
             addView(ProgressBar(activity))
             addView(TextView(activity).apply {
-                text     = message
+                text = message
                 textSize = 14f
-                gravity  = Gravity.CENTER
+                gravity = Gravity.CENTER
                 setPadding(0, 16, 0, 0)
             })
         }
 
     private fun buildEmptyView(message: String): TextView =
         TextView(activity).apply {
-            text     = message
+            text = message
             textSize = 14f
-            gravity  = Gravity.CENTER
+            gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 400)
         }
 
@@ -1272,32 +1186,21 @@ class NewsDelegate(
         }
     }
 
-    // ── 로그 요약 ────────────────────────────────────────────────────────────
-
-    private fun logSummary(total: Int, titleFiltered: Int, deduplicated: Int) {
-        Log.d(TAG, "============================================")
-        Log.d(TAG, "수집 총계  : ${total}개")
-        Log.d(TAG, "제목 필터  : ${total - titleFiltered}개 제외 → ${titleFiltered}개 남음")
-        Log.d(TAG, "중복 제거  : ${titleFiltered - deduplicated}개 제외 → ${deduplicated}개 남음")
-        Log.d(TAG, "최종 표시  : ${minOf(deduplicated, NEWS_DISPLAY_COUNT)}개")
-        Log.d(TAG, "============================================")
-    }
-
     // ── 날짜 포맷 헬퍼 ───────────────────────────────────────────────────────
 
     private fun String.toFormattedDate(): String = runCatching {
-        val sdf  = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.ENGLISH)
+        val sdf = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.ENGLISH)
         val date = sdf.parse(this) ?: return this
         SimpleDateFormat("yyyy.MM.dd", Locale.KOREA).format(date)
     }.getOrDefault(this)
 
     private fun String.toDisplayDate(): String = runCatching {
-        val sdf  = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.ENGLISH)
+        val sdf = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.ENGLISH)
         val date = sdf.parse(this) ?: return ""
-        val kst  = TimeZone.getTimeZone("Asia/Seoul")
+        val kst = TimeZone.getTimeZone("Asia/Seoul")
         val calItem = Calendar.getInstance(kst).also { it.time = date }
-        val calNow  = Calendar.getInstance(kst)
-        val isToday = calItem.get(Calendar.YEAR)        == calNow.get(Calendar.YEAR) &&
+        val calNow = Calendar.getInstance(kst)
+        val isToday = calItem.get(Calendar.YEAR) == calNow.get(Calendar.YEAR) &&
                 calItem.get(Calendar.DAY_OF_YEAR) == calNow.get(Calendar.DAY_OF_YEAR)
         if (isToday) {
             SimpleDateFormat("HH:mm", Locale.KOREA).also { it.timeZone = kst }.format(date)
@@ -1328,7 +1231,7 @@ private fun NaverNewsItem.isEntertainmentOrSports(): Boolean {
         "star.mt.co.kr", "heraldpop.com", "mydaily.co.kr", "topstarnews.net",
         "tvdaily.asiae.co.kr", "enews24.net", "newsen.com", "sportsseoul.com",
         "sportsworld.co.kr", "sportsworldi.com", "mksports.co.kr", "kusports.com",
-        "dailysportshankook.co.kr",  // ★ 한국스포츠 (도메인 수정)
+        "dailysportshankook.co.kr",
         "/sports/", "/sport/", "/entertain/", "/entertainment/", "/celeb/", "/star/"
     )
     if (originalPatterns.any { link.contains(it, ignoreCase = true) }) return true
@@ -1336,16 +1239,16 @@ private fun NaverNewsItem.isEntertainmentOrSports(): Boolean {
 }
 
 data class NaverNewsItem(
-    val title      : String,
-    val link       : String,
-    val naverLink  : String,
-    val pubDate    : String,
-    val pubDateRaw : String,
+    val title: String,
+    val link: String,
+    val naverLink: String,
+    val pubDate: String,
+    val pubDateRaw: String,
     val description: String
 )
 
 sealed class ContentBlock {
-    data class Text (val content: String)                       : ContentBlock()
+    data class Text(val content: String) : ContentBlock()
     data class Image(val url: String, val caption: String = "") : ContentBlock()
 }
 
@@ -1356,7 +1259,12 @@ private fun String.translateToEnglishName(): String {
         "엘에스" to "LS",
         "아이엠" to "IM",
         "케이피엑스" to "KPX",
-        "에이치디" to "HD" // 필요시 추가
+        "에이치디" to "HD",
+        "에이치앤지" to "H&G",
+        "에이치엘" to "HL",
+        "한화위탁관리부동산투자회사" to "한화리츠",
+        "한화에어로스페이스" to "한화에어로",
+        "아난티코브" to "아난티"
     )
     var result = this
     nameMap.forEach { (korean, english) ->

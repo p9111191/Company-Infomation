@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- http:// 뉴스 사이트 허용 (Android 9+ cleartext 차단 대응) -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">biztribune.co.kr</domain>
+        <domain includeSubdomains="true">newsfreezone.co.kr</domain>
+        <domain includeSubdomains="true">pinpointnews.co.kr</domain>
+        <domain includeSubdomains="true">newstopkorea.com</domain>
+        <domain includeSubdomains="true">snmnews.com</domain>
+        <domain includeSubdomains="true">wsobi.com</domain>
+        <domain includeSubdomains="true">financialreview.co.kr</domain>
+        <domain includeSubdomains="true">sisacast.kr</domain>
+        <domain includeSubdomains="true">worktoday.co.kr</domain>
+        <domain includeSubdomains="true">koreaittimes.com</domain>
+        <domain includeSubdomains="true">mtnews.net</domain>
+        <domain includeSubdomains="true">finomy.com</domain>
+        <domain includeSubdomains="true">dynews.co.kr</domain>
+        <domain includeSubdomains="true">ccdailynews.com</domain>
+        <domain includeSubdomains="true">smartfn.co.kr</domain>
+        <domain includeSubdomains="true">smartbizn.com</domain>
+        <domain includeSubdomains="true">newsmaker.or.kr</domain>
+        <domain includeSubdomains="true">areyou.co.kr</domain>
+        <domain includeSubdomains="true">wikileaks-kr.org</domain>
+        <domain includeSubdomains="true">techholic.co.kr</domain>
+        <domain includeSubdomains="true">autotimes.co.kr</domain>
+        <domain includeSubdomains="true">jemin.com</domain>
+        <domain includeSubdomains="true">koreatimes.com</domain>
+        <!-- http:// 리다이렉트가 발견되는 언론사를 여기에 추가 -->
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false"/>
+</network-security-config>
